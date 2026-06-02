@@ -11,6 +11,9 @@ export type ViewMode = "single" | "building" | "floor";
 /** Sentinel floor ID for the lobby (unmatched sessions) */
 export const LOBBY_FLOOR_ID = "__lobby__";
 
+/** Sentinel floor ID for the virtual "all sessions" floor */
+export const ALL_FLOOR_ID = "__all__";
+
 /** Room configuration mapped to a repository */
 export interface RoomConfig {
   id: string;

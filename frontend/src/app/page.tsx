@@ -50,6 +50,8 @@ import AttentionToasts from "@/components/attention/AttentionToasts";
 import AgentPopup from "@/components/attention/AgentPopup";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useLayoutStore } from "@/stores/layoutStore";
+import { PanelDndProvider } from "@/components/sidebar/PanelDndProvider";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 
@@ -60,7 +62,7 @@ import type { Session } from "@/hooks/useSessions";
 function LoadingFallback() {
   const { t } = useTranslation();
   return (
-    <div className="w-full h-full bg-slate-900 animate-pulse flex items-center justify-center text-white font-mono text-center">
+    <div className="w-full h-full bg-jp-surface-1 animate-pulse flex items-center justify-center text-white font-mono text-center">
       {t("app.initializingSystems")}
     </div>
   );
@@ -100,6 +102,7 @@ export default function V2TestPage(): React.ReactNode {
     null,
   );
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [aiSummaryEnabled, setAiSummaryEnabled] = useState<boolean | null>(
@@ -147,6 +150,7 @@ export default function V2TestPage(): React.ReactNode {
     (state) => state.loadPersistedDebugSettings,
   );
   const loadPreferences = usePreferencesStore((s) => s.loadPreferences);
+  const hydrateLayout = useLayoutStore((s) => s.hydrate);
 
   // Navigation store
   const view = useNavigationStore((s) => s.view);
@@ -197,6 +201,10 @@ export default function V2TestPage(): React.ReactNode {
   useEffect(() => {
     loadPreferences();
   }, [loadPreferences]);
+
+  useEffect(() => {
+    void hydrateLayout();
+  }, [hydrateLayout]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -257,7 +265,7 @@ export default function V2TestPage(): React.ReactNode {
   // Render
   // ------------------------------------------------------------------
   return (
-    <main className="flex h-screen flex-col bg-neutral-950 p-2 overflow-hidden relative">
+    <main className="flex h-screen flex-col bg-jp-ink p-2 overflow-hidden relative">
       {/* ----------------------------------------------------------------
           Modals
       ---------------------------------------------------------------- */}
@@ -269,7 +277,7 @@ export default function V2TestPage(): React.ReactNode {
           <>
             <button
               onClick={() => setIsClearModalOpen(false)}
-              className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold transition-colors"
+              className="px-4 py-2 text-jp-fg-muted hover:text-white text-sm font-bold transition-colors"
             >
               {t("modal.cancel")}
             </button>
@@ -292,36 +300,36 @@ export default function V2TestPage(): React.ReactNode {
         footer={
           <button
             onClick={() => setIsHelpModalOpen(false)}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
+            className="px-4 py-2 bg-jp-surface-3 hover:bg-jp-surface-3 text-white text-sm font-bold rounded-lg transition-colors"
           >
             {t("modal.close")}
           </button>
         }
       >
         <div className="space-y-3 font-mono text-sm">
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
+          <div className="flex justify-between items-center py-2 border-b border-jp-divider">
+            <kbd className="px-2 py-1 bg-jp-surface-2 rounded text-white font-bold">
               D
             </kbd>
-            <span className="text-slate-300">{t("modal.toggleDebug")}</span>
+            <span className="text-jp-fg">{t("modal.toggleDebug")}</span>
           </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
+          <div className="flex justify-between items-center py-2 border-b border-jp-divider">
+            <kbd className="px-2 py-1 bg-jp-surface-2 rounded text-white font-bold">
               P
             </kbd>
-            <span className="text-slate-300">{t("modal.showAgentPaths")}</span>
+            <span className="text-jp-fg">{t("modal.showAgentPaths")}</span>
           </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
+          <div className="flex justify-between items-center py-2 border-b border-jp-divider">
+            <kbd className="px-2 py-1 bg-jp-surface-2 rounded text-white font-bold">
               Q
             </kbd>
-            <span className="text-slate-300">{t("modal.showQueueSlots")}</span>
+            <span className="text-jp-fg">{t("modal.showQueueSlots")}</span>
           </div>
           <div className="flex justify-between items-center py-2">
-            <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
+            <kbd className="px-2 py-1 bg-jp-surface-2 rounded text-white font-bold">
               L
             </kbd>
-            <span className="text-slate-300">{t("modal.showPhaseLabels")}</span>
+            <span className="text-jp-fg">{t("modal.showPhaseLabels")}</span>
           </div>
         </div>
       </Modal>
@@ -340,7 +348,7 @@ export default function V2TestPage(): React.ReactNode {
           <>
             <button
               onClick={() => setSessionPendingDelete(null)}
-              className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold transition-colors"
+              className="px-4 py-2 text-jp-fg-muted hover:text-white text-sm font-bold transition-colors"
             >
               {t("modal.cancel")}
             </button>
@@ -361,7 +369,7 @@ export default function V2TestPage(): React.ReactNode {
           </span>
           ?
         </p>
-        <p className="text-slate-400 text-sm mt-2">
+        <p className="text-jp-fg-muted text-sm mt-2">
           {t("modal.deleteSessionWarning")}{" "}
           {sessionPendingDelete?.eventCount ?? 0} {t("modal.events")}.{" "}
           {t("modal.cannotBeUndone")}
@@ -371,27 +379,29 @@ export default function V2TestPage(): React.ReactNode {
       {/* ----------------------------------------------------------------
           Header
       ---------------------------------------------------------------- */}
-      <header className="flex justify-between items-center mb-2 px-1 relative h-12">
-        <div className="flex items-center gap-3">
+      <header className="flex justify-between items-center mb-2 px-1 relative h-12 gap-4 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
           {isMobile && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label={mobileMenuOpen ? t("modal.close") : t("mobile.menu")}
               aria-expanded={mobileMenuOpen}
-              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white transition-colors"
+              className="p-2 bg-jp-surface-2 hover:bg-jp-surface-3 rounded-lg text-white transition-colors"
             >
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           )}
           <h1
-            className={`font-bold text-white tracking-tight flex items-center gap-2 ${
+            className={`font-bold text-white tracking-tight flex items-center gap-2 whitespace-nowrap ${
               isMobile ? "text-lg" : "text-2xl"
             }`}
           >
-            <span className="text-orange-500">Claude</span>{" "}
-            {!isMobile && t("app.title")}
+            <span className="text-jp-gold">Claude</span>
             {!isMobile && (
-              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
+              <span className="hidden lg:inline">{t("app.title")}</span>
+            )}
+            {!isMobile && (
+              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-jp-surface-2 rounded text-jp-fg-muted border border-jp-divider">
                 v0.17.0
               </span>
             )}
@@ -401,8 +411,8 @@ export default function V2TestPage(): React.ReactNode {
           {!isMobile && <Breadcrumb />}
         </div>
 
-        {/* Centered status toast */}
-        <div className="absolute left-1/3 -translate-x-1/2 flex items-center pointer-events-none">
+        {/* Status toast — floats below the header, centered, doesn't collide with buttons */}
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 flex items-center pointer-events-none">
           <StatusToast message={statusMessage} />
         </div>
 
@@ -427,7 +437,7 @@ export default function V2TestPage(): React.ReactNode {
                 isConnected ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
               }`}
             />
-            <span className="text-xs text-slate-400 font-mono">
+            <span className="text-xs text-jp-fg-muted font-mono">
               {agents.size} {t("header.agents")}
             </span>
           </div>
@@ -457,7 +467,7 @@ export default function V2TestPage(): React.ReactNode {
       ---------------------------------------------------------------- */}
       {isMobile ? (
         <div className="flex-grow flex flex-col gap-1.5 overflow-hidden min-h-0">
-          <div className="flex-[3] border border-slate-800 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative min-h-0">
+          <div className="flex-[3] border border-jp-divider-soft rounded-lg shadow-2xl bg-jp-surface-1 overflow-hidden relative min-h-0">
             <OfficeGame />
           </div>
           <MobileAgentActivity agents={agents} boss={boss} />
@@ -466,6 +476,7 @@ export default function V2TestPage(): React.ReactNode {
         /* ----------------------------------------------------------------
             Single View (default, original layout)
         ---------------------------------------------------------------- */
+        <PanelDndProvider>
         <div className="flex-grow flex gap-2 overflow-hidden min-h-0">
           <SessionSidebar
             sessions={sessions}
@@ -482,13 +493,19 @@ export default function V2TestPage(): React.ReactNode {
 
           <div
             data-tour-id="game-canvas"
-            className="flex-grow border border-slate-800 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative"
+            className="flex-grow border border-jp-divider-soft rounded-lg shadow-2xl bg-jp-surface-1 overflow-hidden relative"
           >
             <OfficeGame />
           </div>
 
-          <RightSidebar />
+          <RightSidebar
+            isCollapsed={rightSidebarCollapsed}
+            onToggleCollapsed={() =>
+              setRightSidebarCollapsed(!rightSidebarCollapsed)
+            }
+          />
         </div>
+        </PanelDndProvider>
       ) : (
         /* ----------------------------------------------------------------
             Building / Floor View (animated transitions)
@@ -504,6 +521,10 @@ export default function V2TestPage(): React.ReactNode {
               isCollapsed={leftSidebarCollapsed}
               onToggleCollapsed={() =>
                 setLeftSidebarCollapsed(!leftSidebarCollapsed)
+              }
+              rightSidebarCollapsed={rightSidebarCollapsed}
+              onToggleRightSidebar={() =>
+                setRightSidebarCollapsed(!rightSidebarCollapsed)
               }
               onSessionSelect={handleSessionSelect}
               onDeleteSession={setSessionPendingDelete}
