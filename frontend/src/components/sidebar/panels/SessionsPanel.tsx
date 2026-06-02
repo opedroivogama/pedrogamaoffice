@@ -28,6 +28,16 @@ function getProjectKey(session: Session): string {
   return "unknown";
 }
 
+// Sessões do Claude Code têm session_id em formato UUID. Sessões sintéticas
+// criadas por bridges externos (ex: jurischat_bridge → "comercial-recepcao-ia")
+// usam kebab-case e NÃO têm transcript pra `claude --resume`. Pra essas o Play
+// fica visualmente desabilitado.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isResumableSession(sessionId: string): boolean {
+  return UUID_RE.test(sessionId);
+}
+
 function groupSessionsByProject(sessions: Session[]): Map<string, Session[]> {
   const groups = new Map<string, Session[]>();
   for (const s of sessions) {
@@ -284,18 +294,33 @@ export function SessionsPanel(): React.ReactNode {
                             : "text-jp-fg"
                         }`}
                       />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleResume(primary.id);
-                        }}
-                        className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
-                        title={t("sessions.resumeSession")}
-                        aria-label={`${t("sessions.resumeSession")} ${primary.id}`}
-                      >
-                        <Play size={12} />
-                      </button>
+                      {(() => {
+                        const resumable = isResumableSession(primary.id);
+                        return (
+                          <button
+                            type="button"
+                            disabled={!resumable}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!resumable) return;
+                              void handleResume(primary.id);
+                            }}
+                            className={
+                              resumable
+                                ? "p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                : "p-1 text-jp-fg-dim rounded transition-colors opacity-0 group-hover:opacity-30 cursor-not-allowed"
+                            }
+                            title={
+                              resumable
+                                ? t("sessions.resumeSession")
+                                : "Sessão externa — não pode ser retomada via claude"
+                            }
+                            aria-label={`${t("sessions.resumeSession")} ${primary.id}`}
+                          >
+                            <Play size={12} />
+                          </button>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -376,18 +401,35 @@ export function SessionsPanel(): React.ReactNode {
                                   },
                                 )}
                               </span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleResume(session.id);
-                                }}
-                                className="p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
-                                title={t("sessions.resumeSession")}
-                                aria-label={`${t("sessions.resumeSession")} ${session.id}`}
-                              >
-                                <Play size={10} />
-                              </button>
+                              {(() => {
+                                const resumable = isResumableSession(
+                                  session.id,
+                                );
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={!resumable}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!resumable) return;
+                                      void handleResume(session.id);
+                                    }}
+                                    className={
+                                      resumable
+                                        ? "p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+                                        : "p-0.5 text-jp-fg-dim rounded transition-colors opacity-0 group-hover:opacity-30 cursor-not-allowed"
+                                    }
+                                    title={
+                                      resumable
+                                        ? t("sessions.resumeSession")
+                                        : "Sessão externa — não pode ser retomada via claude"
+                                    }
+                                    aria-label={`${t("sessions.resumeSession")} ${session.id}`}
+                                  >
+                                    <Play size={10} />
+                                  </button>
+                                );
+                              })()}
                               <button
                                 type="button"
                                 onClick={(e) => {

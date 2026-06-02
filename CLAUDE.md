@@ -4,19 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Claude Office Visualizer transforms Claude Code operations into a real-time pixel art office simulation. A "boss" character (main Claude agent) manages work, spawns "employee" agents (subagents), and orchestrates tasks visually.
+Originally a Claude Code activity visualizer (fork of `paulrobello/claude-office`), this project is being repurposed into the **Jurídico Pro company painel** — a real-time pixel art representation of the whole firm. Floors map to company areas (Atendimento, Comercial, Mídia Paga, Operacional, Diretoria), agents map to team members (human + AI like Vanessa Palmiere), and external systems (JurisChat, Meta Ads, Evolution API, Supabase) feed live events through bridges.
 
-See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for system architecture and component details.
+Claude Code activity remains a first-class event source (the original hooks still work), but it now sits alongside non-Claude sources rather than being the only one.
+
+See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for the upstream system architecture; bridge architecture is documented inline below.
 
 ## Project Goals & Scope
 
-**What this is** — Pedro's personal observability tool for his own Claude Code activity, customized with Jurídico Pro branding. Treated as a Jurídico Pro internal tool, not a generic open-source distribution.
+**What this is** — Pedro's company painel for Jurídico Pro: a single dark-themed visual surface showing what's happening across the firm right now (who's attending which lead, current CPL, contracts in the pipeline, Claude sessions running, etc.). Customized with Jurídico Pro branding.
 
-**Who uses it** — Today: Pedro only, running locally. Future: other Jurídico Pro employees, gated by login. New features should NOT block this future (don't hardcode single-user assumptions in DB queries, API routes, or state) but auth itself is NOT required yet.
+**Who uses it** — Today: Pedro only, running locally. Future: other Jurídico Pro employees, gated by login. Eventually displayed on a wall monitor as an "executive war room" view. New features should NOT block this future (don't hardcode single-user assumptions in DB queries, API routes, or state) but auth itself is NOT required yet.
 
 **Relationship to upstream** — Divergent fork from `paulrobello/claude-office`. No commitment to PR back, no parity guarantee. Upstream fixes may be cherry-picked ad-hoc when useful, but breaking compatibility with upstream is acceptable when it serves Jurídico Pro needs.
 
-**Non-goals** — Public/anonymous internet access; SaaS distribution to non-JP users; mobile-first redesign (desk-first UI is fine); becoming a general monitoring/observability platform (scope stays at Claude Code visualization).
+**Non-goals** — Public/anonymous internet access; SaaS distribution to non-JP users; mobile-first redesign (desk-first UI is fine); replacing operational tools like JurisChat/CRM (this is a *view* layer, not an editing layer — people still work in the source systems).
 
 ## Decision Constraints
 
@@ -90,6 +92,11 @@ See `.claude/skills/*/SKILL.md` for details.
 **Database backend** — `DATABASE_URL` accepts both SQLite (default) and Postgres. The engine factory in `backend/app/db/database.py` picks per-dialect settings; SQLite uses StaticPool + WAL, Postgres uses asyncpg default pool. Boolean `server_default`s use `"false"` (Postgres-compatible) rather than `"0"`.
 
 **Session display name sync** — `POST /api/v1/sessions/refresh-names` scans each active session's JSONL transcript for the latest `ai-title` entry and updates `display_name`. Picks up both Claude Code's auto-generated titles and manual `/rename` slash commands. The refresh button is in the sessions sidebar header.
+
+**External bridges (company painel)** — Non-Claude data sources feed the visualizer via independent bridge scripts under `scripts/bridges/`. Each bridge polls (or webhooks) its source system and POSTs `Event` payloads to `/api/v1/events` using a synthetic `session_id` (e.g. `jurischat-vanessa-ia`). The backend treats them like any other session — no special handling. To wire a new source: (1) add the area to `floors.toml` with a `repos` entry that doubles as the source ID; (2) write a polling loop that emits `SUBAGENT_START` / `SUBAGENT_STOP` / `STOP` events; (3) run it as a long-lived process. Existing bridges:
+- `scripts/bridges/jurischat_bridge.py` — polls JurisChat HTTP API; shows Vanessa IA attending leads in the Atendimento floor.
+
+**Source-ID convention** — In `floors.toml`, the `repos = [...]` array is overloaded: each entry is either a real git repo basename (Claude Code source) or a synthetic source ID matching a bridge's `project_name` (external source). The `ProductMapper` doesn't distinguish — it just looks up the string. Bridges should pick source IDs that are obviously non-repo (kebab-case with domain prefix like `atendimento-vanessa-ia`, `meta-ads-cpl`, `crm-pipeline`) to avoid collisions.
 
 ## Version Management
 

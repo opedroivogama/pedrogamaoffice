@@ -1,29 +1,28 @@
-building_name = "Tesseron"
+building_name = "Jurídico Pro"
+
+# Andar único definido aqui = Comercial.
+# Os andares Claude Code do Pedro NÃO estão nesse arquivo de propósito — eles
+# vivem no DB (user_preferences.building_config), configurados via UI Settings.
+# O script `scripts/bridges/sync_floors_to_db.py` faz MERGE: empurra os andares
+# desse TOML pro DB SEM apagar os andares Claude que já existem lá.
+#
+# Convenção de source_id (campo `repos`): kebab-case, prefixo do andar.
+#   - comercial-recepcao-ia    → bridge JurisChat (IA Vanessa Recepção)
+#   - comercial-laura          → triagem humana (futuro bridge ou manual)
+#   - comercial-vanessa        → vendedora de tráfego (Vanessa humana, ≠ IA!)
+#   - comercial-gabriela       → vendedora de sites
+#   - comercial-pedro          → closer + diretor comercial
+#
+# Próximos andares JP (Mídia Paga, Operacional, Diretoria) virão depois,
+# um de cada vez, conforme os bridges forem prontos.
 
 [[floors]]
-name = "Herramientas"
-floor_number = 4
-accent = "#f59e0b"
-icon = "🔧"
-repos = ["panoptica", "prometeo-arius"]
-
-[[floors]]
-name = "Recepthor"
-floor_number = 3
-accent = "#2563eb"
-icon = "⚖️"
-repos = ["recepthor-api", "recepthor-hub", "recepthor-scraper", "recepthor-web", "recepthor-serverless"]
-
-[[floors]]
-name = "Lexio"
-floor_number = 2
-accent = "#7c3aed"
-icon = "📚"
-repos = ["lexio"]
-
-[[floors]]
-name = "entreperros"
-floor_number = 1
-accent = "#059669"
-icon = "🐕"
-repos = ["entreperros"]
+name = "Comercial"
+floor_number = 5  # topo do prédio — fica acima dos andares Claude existentes
+accent = "#B8972A"  # JP Gold Primary — área motora da empresa
+icon = "🤝"
+# Comecei só com a sala que tem bridge funcionando. Quando construir bridge
+# pra Laura/Vanessa/Gabriela/Pedro (CRM, agenda, etc.), adicionar aqui.
+repos = [
+  "comercial-recepcao-ia",   # IA Vanessa Recepção (JurisChat bridge)
+]

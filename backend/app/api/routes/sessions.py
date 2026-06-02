@@ -497,15 +497,20 @@ def _build_resume_command(workdir: str, session_id: str) -> list[str] | None:
 
     Returns ``None`` on unsupported platforms.
     """
+    import shutil
+
     inner = f"claude --resume {session_id}"
     if sys.platform == "win32":
+        # Prefer PowerShell 7+ (pwsh) but fall back to built-in PowerShell 5.1
+        # (powershell.exe) — many Windows boxes don't have pwsh installed.
+        shell = "pwsh" if shutil.which("pwsh") else "powershell"
         # Windows Terminal: -d sets the starting directory, then we hand off
-        # to pwsh with -NoExit so the window stays open after `claude` exits.
+        # to the shell with -NoExit so the window stays open after claude exits.
         return [
             "wt.exe",
             "-d",
             workdir,
-            "pwsh",
+            shell,
             "-NoExit",
             "-Command",
             inner,
@@ -521,6 +526,32 @@ def _build_resume_command(workdir: str, session_id: str) -> list[str] | None:
             "-lc",
             f"cd {workdir!r} && {inner}; exec bash",
         ]
+    return None
+
+
+async def _recover_workdir_from_events(db: AsyncSession, session_id: str) -> str | None:
+    """Scan recent events for a working_dir / project_dir / cwd value.
+
+    Used when a session predates the ``last_cwd`` column and therefore has
+    no directory persisted on the SessionRecord. Walks the most recent
+    events first so the freshest path wins.
+    """
+    stmt = (
+        select(EventRecord.data)
+        .where(EventRecord.session_id == session_id)
+        .order_by(EventRecord.timestamp.desc())
+        .limit(100)
+    )
+    rows = (await db.execute(stmt)).all()
+    for row in rows:
+        raw = row[0]
+        if not isinstance(raw, dict):
+            continue
+        data = cast(dict[str, Any], raw)
+        for key in ("working_dir", "project_dir", "cwd"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                return value
     return None
 
 
@@ -555,6 +586,13 @@ async def resume_session(
 
         workdir = session.last_cwd or session.project_root
         if not workdir:
+            # Sessions that predate the last_cwd column can still be recovered
+            # by mining the persisted event JSON for a directory hint.
+            workdir = await _recover_workdir_from_events(db, session_id)
+            if workdir:
+                session.last_cwd = workdir
+                await db.commit()
+        if not workdir:
             raise HTTPException(
                 status_code=400,
                 detail="Session has no recorded working directory",
@@ -567,11 +605,16 @@ async def resume_session(
                 detail=f"Resume is not implemented for platform {sys.platform}",
             )
 
+        # Fire-and-forget spawn. Usamos subprocess.Popen síncrono (não
+        # asyncio.create_subprocess_exec) porque o event loop atual no Windows
+        # pode não ser o ProactorEventLoop — Selector loops levantam
+        # NotImplementedError em subprocess_exec. Popen não passa por asyncio.
         try:
-            await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+            subprocess.Popen(  # noqa: S603
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
             )
         except FileNotFoundError as e:
             raise HTTPException(
