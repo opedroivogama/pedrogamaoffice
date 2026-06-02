@@ -89,6 +89,9 @@ const es: Record<TranslationKey, string> = {
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Contraer barra lateral",
   "sessions.refreshNames": "Actualizar nombres desde Claude Code (/rename)",
+  "sessions.resumeSession": "Reanudar en una nueva terminal",
+  "sessions.resumeFailed": "Error al reanudar la sesión",
+  "sessions.resumeSuccess": "Reanudando sesión en una nueva terminal",
   "sessions.dragToResize": "Arrastrar para redimensionar",
 
   // Right Sidebar

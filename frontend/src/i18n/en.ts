@@ -88,6 +88,9 @@ const en = {
   "sessions.collapseSidebar": "Collapse sidebar",
   "sessions.dragToResize": "Drag to resize",
   "sessions.refreshNames": "Refresh names from Claude Code (/rename)",
+  "sessions.resumeSession": "Resume in a new terminal",
+  "sessions.resumeFailed": "Failed to resume session",
+  "sessions.resumeSuccess": "Resuming session in a new terminal",
 
   // Right Sidebar
   "sidebar.events": "Events",

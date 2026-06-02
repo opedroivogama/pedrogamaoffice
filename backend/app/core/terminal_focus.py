@@ -36,6 +36,32 @@ def register_session(session_id: str, claude_code_pid: int) -> None:
     )
 
 
+async def warm_pid_cache_from_db() -> None:
+    """Populate the in-memory PID map from persisted SessionRecord rows.
+
+    Called on backend startup so the focus action keeps working across
+    restarts for sessions whose terminal process is still alive. Stale
+    entries (dead PIDs) are harmless — the focus walk simply fails.
+    """
+    from sqlalchemy import select
+
+    from app.db.database import AsyncSessionLocal
+    from app.db.models import SessionRecord
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(SessionRecord.id, SessionRecord.terminal_pid).where(
+                SessionRecord.terminal_pid.is_not(None)
+            )
+        )
+        loaded = 0
+        for sid, pid in result.all():
+            if sid and pid:
+                _session_claude_pid[sid] = int(pid)
+                loaded += 1
+        logger.info("Warmed terminal-PID cache: %d session(s)", loaded)
+
+
 def get_terminal_pid(session_id: str) -> int | None:
     """Return the registered Claude Code PID for *session_id*, or None."""
     return _session_claude_pid.get(session_id)
@@ -183,9 +209,7 @@ if sys.platform == "win32":
                 break
             pid = info[0]  # parent PID
 
-        logger.info(
-            "No ancestor with window for start_pid=%s (chain=%s)", start_pid, chain
-        )
+        logger.info("No ancestor with window for start_pid=%s (chain=%s)", start_pid, chain)
         return False
 
 else:

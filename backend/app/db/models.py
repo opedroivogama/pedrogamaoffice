@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -32,9 +32,9 @@ class SessionRecord(Base):
     room_id: Mapped[str | None] = mapped_column(String, nullable=True)
     team_name: Mapped[str | None] = mapped_column(String, nullable=True)
     teammate_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    is_lead: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false"
-    )
+    is_lead: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    terminal_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_cwd: Mapped[str | None] = mapped_column(String, nullable=True)
 
     events: Mapped[list[EventRecord]] = relationship(
         "EventRecord", back_populates="session", cascade="all, delete-orphan"

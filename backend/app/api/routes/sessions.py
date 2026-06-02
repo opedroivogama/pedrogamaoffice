@@ -16,6 +16,8 @@ from app.config import get_settings
 from app.core.event_processor import event_processor
 from app.core.jsonl_parser import get_session_ai_title
 from app.core.terminal_focus import focus_session as focus_session_window
+from app.core.terminal_focus import get_terminal_pid
+from app.core.terminal_focus import register_session as register_terminal_pid
 from app.db.database import get_db
 from app.db.models import EventRecord, SessionRecord, TaskRecord, UserPreference
 from app.services.git_service import git_service
@@ -428,6 +430,10 @@ async def focus_session(
             # Use the per-session terminal-PID map populated on session_start.
             # Falls through to no-op if the session hasn't reported its PID yet
             # (e.g., started before the hook was updated).
+            # If the in-memory cache is cold (post-restart, before the next
+            # session_start hits), seed it from the persisted column.
+            if get_terminal_pid(session_id) is None and session.terminal_pid:
+                register_terminal_pid(session_id, session.terminal_pid)
             focus_session_window(session_id)
         elif sys.platform == "darwin":
             await asyncio.create_subprocess_exec(
@@ -483,6 +489,105 @@ async def focus_session(
     except Exception as e:
         logger.exception("Error in focus_session: %s", e)
         raise HTTPException(status_code=500, detail="Failed to focus session") from e
+
+
+def _build_resume_command(workdir: str, session_id: str) -> list[str] | None:
+    """Build the platform-appropriate command that opens a new terminal at
+    ``workdir`` and runs ``claude --resume <session_id>``.
+
+    Returns ``None`` on unsupported platforms.
+    """
+    inner = f"claude --resume {session_id}"
+    if sys.platform == "win32":
+        # Windows Terminal: -d sets the starting directory, then we hand off
+        # to pwsh with -NoExit so the window stays open after `claude` exits.
+        return [
+            "wt.exe",
+            "-d",
+            workdir,
+            "pwsh",
+            "-NoExit",
+            "-Command",
+            inner,
+        ]
+    if sys.platform == "darwin":
+        script = f'tell application "Terminal" to do script "cd {workdir!r} && {inner}"'
+        return ["osascript", "-e", script]
+    if sys.platform == "linux":
+        return [
+            "x-terminal-emulator",
+            "-e",
+            "bash",
+            "-lc",
+            f"cd {workdir!r} && {inner}; exec bash",
+        ]
+    return None
+
+
+@router.post("/{session_id}/resume")
+async def resume_session(
+    session_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    """Open a fresh terminal at the session's working directory and run
+    ``claude --resume <session_id>``.
+
+    Uses ``last_cwd`` if available, falling back to ``project_root``. This is
+    the post-reboot recovery action: even if the original terminal is gone,
+    we relaunch in the same place and resume the Claude Code session.
+
+    Args:
+        session_id: Identifier for the session to resume.
+        db: Database session dependency.
+
+    Returns:
+        A status payload confirming the launch.
+
+    Raises:
+        HTTPException: If the session is missing, has no known directory,
+            or the platform is unsupported / the launcher is unavailable.
+    """
+    try:
+        result = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        workdir = session.last_cwd or session.project_root
+        if not workdir:
+            raise HTTPException(
+                status_code=400,
+                detail="Session has no recorded working directory",
+            )
+
+        cmd = _build_resume_command(workdir, session_id)
+        if cmd is None:
+            raise HTTPException(
+                status_code=501,
+                detail=f"Resume is not implemented for platform {sys.platform}",
+            )
+
+        try:
+            await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Terminal launcher not found: {cmd[0]}",
+            ) from e
+
+        return {
+            "status": "success",
+            "message": f"Resuming session {session_id} at {workdir}",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in resume_session: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to resume session") from e
 
 
 @router.get("/{session_id}/replay")

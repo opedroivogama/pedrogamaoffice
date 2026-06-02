@@ -759,6 +759,15 @@ class EventProcessor:
                 session_rec.project_root = project_root
                 logger.info(f"Cached project_root for session {event.session_id}: {project_root}")
 
+            # Persist terminal PID (sent on session_start) and the latest
+            # working directory reported by any event. This lets the Resume
+            # action open a new terminal at the right path after a reboot.
+            terminal_pid = event.data.terminal_pid if event.data else None
+            if terminal_pid:
+                session_rec.terminal_pid = terminal_pid
+            if working_dir:
+                session_rec.last_cwd = working_dir
+
             # Derive and store display_name on first encounter.
             if display and not session_rec.display_name:
                 session_rec.display_name = display

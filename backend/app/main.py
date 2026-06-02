@@ -109,6 +109,8 @@ async def _migrate_schema(conn: AsyncConnection) -> None:
         "team_name": "TEXT DEFAULT NULL",
         "teammate_name": "TEXT DEFAULT NULL",
         "is_lead": "BOOLEAN DEFAULT 0",
+        "terminal_pid": "INTEGER DEFAULT NULL",
+        "last_cwd": "TEXT DEFAULT NULL",
     }
 
     result = await conn.execute(text("PRAGMA table_info(sessions)"))
@@ -129,6 +131,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await _migrate_schema(conn)
 
     await _reap_stale_sessions()
+
+    from app.core.terminal_focus import warm_pid_cache_from_db
+
+    await warm_pid_cache_from_db()
 
     git_service.start()
 

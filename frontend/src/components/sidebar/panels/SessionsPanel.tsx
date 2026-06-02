@@ -3,6 +3,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Play,
   PlayCircle,
   Radio,
   RefreshCw,
@@ -162,6 +163,30 @@ export function SessionsPanel(): React.ReactNode {
     }
   }, [isRefreshing]);
 
+  const handleResume = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/api/v1/sessions/${id}/resume`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as
+            | { detail?: string }
+            | null;
+          window.alert(
+            `${t("sessions.resumeFailed")}: ${body?.detail ?? res.statusText}`,
+          );
+        }
+      } catch (err) {
+        window.alert(
+          `${t("sessions.resumeFailed")}: ${(err as Error).message}`,
+        );
+      }
+    },
+    [t],
+  );
+
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -263,6 +288,18 @@ export function SessionsPanel(): React.ReactNode {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          void handleResume(primary.id);
+                        }}
+                        className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        title={t("sessions.resumeSession")}
+                        aria-label={`${t("sessions.resumeSession")} ${primary.id}`}
+                      >
+                        <Play size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           onDeleteSession(primary);
                         }}
                         className="p-1 text-jp-fg-dim hover:text-rose-400 hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
@@ -339,6 +376,18 @@ export function SessionsPanel(): React.ReactNode {
                                   },
                                 )}
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleResume(session.id);
+                                }}
+                                className="p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+                                title={t("sessions.resumeSession")}
+                                aria-label={`${t("sessions.resumeSession")} ${session.id}`}
+                              >
+                                <Play size={10} />
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {

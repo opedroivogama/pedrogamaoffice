@@ -89,6 +89,9 @@ const ptBR: Record<TranslationKey, string> = {
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Recolher barra lateral",
   "sessions.refreshNames": "Atualizar nomes do Claude Code (/rename)",
+  "sessions.resumeSession": "Retomar em um novo terminal",
+  "sessions.resumeFailed": "Falha ao retomar sessão",
+  "sessions.resumeSuccess": "Retomando sessão em novo terminal",
   "sessions.dragToResize": "Arraste para redimensionar",
 
   // Right Sidebar
