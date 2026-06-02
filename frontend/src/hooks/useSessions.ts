@@ -124,6 +124,16 @@ export function useSessions(
       window.removeEventListener("session-deleted", handleSessionDeleted);
   }, [fetchSessions, sessionId, showStatus, t]);
 
+  // Listen for manual refresh-names trigger from the sessions panel button.
+  useEffect(() => {
+    const handleRefresh = () => {
+      void fetchSessions();
+    };
+    window.addEventListener("sessions-refresh", handleRefresh);
+    return () =>
+      window.removeEventListener("sessions-refresh", handleRefresh);
+  }, [fetchSessions]);
+
   // Auto-select most active session on initial mount only
   useEffect(() => {
     // Only auto-select once on initial load, not when user manually selects sim session

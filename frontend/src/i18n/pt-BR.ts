@@ -19,7 +19,7 @@ const ptBR: Record<TranslationKey, string> = {
   "header.aiOn": "LIGADO",
   "header.aiOff": "DESLIGADO",
   "header.agents": "agentes",
-  "header.tour": "TUR",
+  "header.tour": "TOUR",
 
   // Modals
   "modal.confirmDbWipe": "Confirmar Limpeza do Banco",
@@ -88,6 +88,7 @@ const ptBR: Record<TranslationKey, string> = {
   "sessions.events_other": "{count} eventos",
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Recolher barra lateral",
+  "sessions.refreshNames": "Atualizar nomes do Claude Code (/rename)",
   "sessions.dragToResize": "Arraste para redimensionar",
 
   // Right Sidebar

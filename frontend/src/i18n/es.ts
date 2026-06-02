@@ -88,6 +88,7 @@ const es: Record<TranslationKey, string> = {
   "sessions.events_other": "{count} eventos",
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Contraer barra lateral",
+  "sessions.refreshNames": "Actualizar nombres desde Claude Code (/rename)",
   "sessions.dragToResize": "Arrastrar para redimensionar",
 
   // Right Sidebar

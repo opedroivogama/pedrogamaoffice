@@ -87,6 +87,7 @@ const en = {
   "sessions.expandSidebar": "Expand sidebar",
   "sessions.collapseSidebar": "Collapse sidebar",
   "sessions.dragToResize": "Drag to resize",
+  "sessions.refreshNames": "Refresh names from Claude Code (/rename)",
 
   // Right Sidebar
   "sidebar.events": "Events",

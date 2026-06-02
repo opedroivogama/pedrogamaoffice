@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from datetime import UTC
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -12,7 +12,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.websocket import manager
+from app.config import get_settings
 from app.core.event_processor import event_processor
+from app.core.jsonl_parser import get_session_ai_title
+from app.core.terminal_focus import focus_session as focus_session_window
 from app.db.database import get_db
 from app.db.models import EventRecord, SessionRecord, TaskRecord, UserPreference
 from app.services.git_service import git_service
@@ -271,6 +274,84 @@ async def update_session(
         raise HTTPException(status_code=500, detail="Failed to update session") from e
 
 
+class RefreshNamesResult(TypedDict):
+    """Result payload for refresh-names endpoint."""
+
+    status: str
+    updated: int
+    scanned: int
+
+
+@router.post("/refresh-names")
+async def refresh_session_names(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RefreshNamesResult:
+    """Refresh display names from each session's JSONL ai-title entry.
+
+    Walks every session in the database, locates its latest event that carries
+    a transcript_path, reads the most recent ``ai-title`` from that JSONL, and
+    overwrites ``display_name`` when it differs. ``/rename`` in Claude Code
+    overwrites the same ``ai-title`` entry, so this picks up renames too.
+
+    Returns:
+        A summary with the number of sessions scanned and updated.
+    """
+    settings = get_settings()
+    sessions_result = await db.execute(select(SessionRecord))
+    sessions = sessions_result.scalars().all()
+
+    updated = 0
+    scanned = 0
+    changed_ids: list[str] = []
+
+    for session in sessions:
+        # Find the latest event for this session that carries a transcript_path.
+        evt_stmt = (
+            select(EventRecord.data)
+            .where(EventRecord.session_id == session.id)
+            .order_by(EventRecord.timestamp.desc())
+            .limit(50)
+        )
+        evt_rows = (await db.execute(evt_stmt)).all()
+        transcript_path: str | None = None
+        for row in evt_rows:
+            raw = row[0]
+            if not isinstance(raw, dict):
+                continue
+            tp = cast(dict[str, Any], raw).get("transcript_path")
+            if isinstance(tp, str) and tp:
+                transcript_path = tp
+                break
+
+        if not transcript_path:
+            continue
+
+        scanned += 1
+        translated_path = settings.translate_path(transcript_path)
+        new_title = get_session_ai_title(translated_path)
+        if not new_title:
+            continue
+        if new_title == session.display_name:
+            continue
+        session.display_name = new_title
+        updated += 1
+        changed_ids.append(session.id)
+
+    if updated:
+        await db.commit()
+        await manager.broadcast_all(
+            {
+                "type": "sessions_renamed",
+                "session_ids": changed_ids,
+                "timestamp": "",
+            }
+        )
+    else:
+        await db.rollback()
+
+    return {"status": "success", "updated": updated, "scanned": scanned}
+
+
 class FocusRequest(BaseModel):
     """Request body for focusing a session terminal."""
 
@@ -343,7 +424,12 @@ async def focus_session(
             raise HTTPException(status_code=404, detail="Session not found")
 
         # Bring Terminal to foreground (non-blocking async subprocess)
-        if sys.platform == "darwin":
+        if sys.platform == "win32":
+            # Use the per-session terminal-PID map populated on session_start.
+            # Falls through to no-op if the session hasn't reported its PID yet
+            # (e.g., started before the hook was updated).
+            focus_session_window(session_id)
+        elif sys.platform == "darwin":
             await asyncio.create_subprocess_exec(
                 "osascript",
                 "-e",

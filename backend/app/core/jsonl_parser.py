@@ -144,6 +144,55 @@ def get_first_user_prompt(jsonl_path: str | Path) -> str | None:
     return None
 
 
+def get_session_ai_title(jsonl_path: str | Path) -> str | None:
+    """Extract the latest AI-generated session title from a JSONL transcript.
+
+    Claude Code writes entries like::
+
+        {"type":"ai-title","aiTitle":"...","sessionId":"..."}
+
+    The ``/rename`` slash command overwrites this same entry, so reading the
+    last occurrence yields whichever title is currently active.
+
+    Args:
+        jsonl_path: Path to the JSONL transcript file.
+
+    Returns:
+        The latest aiTitle string, or None when the file is missing, unsafe,
+        or contains no ai-title entries.
+    """
+    path = Path(jsonl_path)
+    if not is_safe_transcript_path(path):
+        logger.warning(f"Rejected transcript path outside ~/.claude/: {jsonl_path}")
+        return None
+    if not path.exists():
+        logger.debug(f"Transcript file not found: {jsonl_path}")
+        return None
+
+    last_title: str | None = None
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("type") != "ai-title":
+                    continue
+                title = record.get("aiTitle")
+                if isinstance(title, str) and title.strip():
+                    last_title = title.strip()
+    except OSError as e:
+        logger.warning(f"Error reading transcript file {jsonl_path}: {e}")
+        return None
+
+    return last_title
+
+
 def get_session_messages(
     jsonl_path: str | Path,
 ) -> list[dict[str, str]]:
