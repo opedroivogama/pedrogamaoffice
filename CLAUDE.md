@@ -8,6 +8,23 @@ Claude Office Visualizer transforms Claude Code operations into a real-time pixe
 
 See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for system architecture and component details.
 
+## Project Goals & Scope
+
+**What this is** — Pedro's personal observability tool for his own Claude Code activity, customized with Jurídico Pro branding. Treated as a Jurídico Pro internal tool, not a generic open-source distribution.
+
+**Who uses it** — Today: Pedro only, running locally. Future: other Jurídico Pro employees, gated by login. New features should NOT block this future (don't hardcode single-user assumptions in DB queries, API routes, or state) but auth itself is NOT required yet.
+
+**Relationship to upstream** — Divergent fork from `paulrobello/claude-office`. No commitment to PR back, no parity guarantee. Upstream fixes may be cherry-picked ad-hoc when useful, but breaking compatibility with upstream is acceptable when it serves Jurídico Pro needs.
+
+**Non-goals** — Public/anonymous internet access; SaaS distribution to non-JP users; mobile-first redesign (desk-first UI is fine); becoming a general monitoring/observability platform (scope stays at Claude Code visualization).
+
+## Decision Constraints
+
+- **Visual identity**: All UI surfaces use Jurídico Pro design tokens — dark base + dourado fosco `#B8972A`, Montserrat font. Sprite art and game elements keep retro pixel style but UI chrome (modals, sidebars, headers) follows JP tokens.
+- **Database**: `DATABASE_URL` must support both SQLite (default for local solo use) and Postgres via asyncpg (Supabase for the future multi-user deployment). Don't write SQLite-only SQL.
+- **Hooks stay lightweight**: hooks only forward payload data — no file reads, no JSONL parsing. Heavy work belongs in the backend. This invariant carries over from upstream and must be preserved.
+- **No premature scale features**: don't add rate limiting, queues, multi-tenancy plumbing, or auth scaffolding until there are real >1 users. Solve for today + don't paint into corners.
+
 ## Commands
 
 ```bash
