@@ -18,26 +18,46 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-_engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    connect_args={"check_same_thread": False, "timeout": 15},
-    poolclass=StaticPool,
-)
 
+def _make_engine(url: str) -> AsyncEngine:
+    """Build an async engine appropriate for the configured dialect.
 
-@event.listens_for(_engine.sync_engine, "connect")
-def _set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:  # pyright: ignore[reportUnusedFunction]
-    """Enable WAL mode and busy timeout on every SQLite connection.
-
-    WAL mode allows concurrent readers alongside a single writer, which
-    prevents the "database is locked" errors that occur when multiple
-    async tasks (hook events, pollers, git service) write concurrently.
+    SQLite needs StaticPool + check_same_thread=False + a custom busy
+    timeout. Postgres uses the default pool and no SQLite-specific args.
     """
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
-    cursor.close()
+    if url.startswith("sqlite"):
+        return create_async_engine(
+            url,
+            echo=False,
+            connect_args={"check_same_thread": False, "timeout": 15},
+            poolclass=StaticPool,
+        )
+    # Postgres / others: rely on default pooling. asyncpg ignores the
+    # connect_args we'd send to aiosqlite.
+    return create_async_engine(
+        url,
+        echo=False,
+        pool_pre_ping=True,
+    )
+
+
+_engine: AsyncEngine = _make_engine(settings.DATABASE_URL)
+
+
+if _engine.dialect.name == "sqlite":
+
+    @event.listens_for(_engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:  # pyright: ignore[reportUnusedFunction]
+        """Enable WAL mode and busy timeout on every SQLite connection.
+
+        WAL mode allows concurrent readers alongside a single writer, which
+        prevents the "database is locked" errors that occur when multiple
+        async tasks (hook events, pollers, git service) write concurrently.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 
 _session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
