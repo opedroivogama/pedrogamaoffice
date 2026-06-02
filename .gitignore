@@ -109,3 +109,18 @@ frontend/public/sprites/paid/
 docs/superpowers
 .cc2cc-session-id
 graphify-out/
+
+# --- Local backups / scratch artifacts ---
+escritorio-online-BACKUP-*.zip
+sprites-backup-*/
+SPRITES/
+video-frames/
+*.mp4
+.playwright-mcp/
+backend/dev.err
+backend/_sync_prefs_to_supabase.py
+
+# --- Root-level scratch screenshots (debug captures) ---
+/*.png
+scripts/*.png
+frontend/public/test_gen.png
