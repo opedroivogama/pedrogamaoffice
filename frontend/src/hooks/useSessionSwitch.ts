@@ -43,6 +43,16 @@ export function useSessionSwitch({
   const { t } = useTranslation();
 
   const handleSessionSelect = async (id: string): Promise<void> => {
+    // Always try to focus the terminal — even when re-clicking the active
+    // session, the intent is "bring that terminal window to the front".
+    void fetch(`http://localhost:8000/api/v1/sessions/${id}/focus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => {
+      // Fire-and-forget: ignore failures (no PID registered yet, etc.)
+    });
+
     if (id === sessionId) return;
 
     // Reset state machines and store for session switch.

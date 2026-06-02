@@ -88,6 +88,9 @@ class EventData(BaseModel):
     # Task-specific fields
     task_id: str | None = None
     task_subject: str | None = None
+    # Terminal focus support: PID of the Claude Code process so the backend
+    # can walk up to find the owning terminal window. Only sent on session_start.
+    terminal_pid: int | None = None
 
 
 class Event(BaseModel):

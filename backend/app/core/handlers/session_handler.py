@@ -14,6 +14,7 @@ from pathlib import Path
 from app.core.broadcast_service import broadcast_state
 from app.core.state_machine import StateMachine
 from app.core.task_file_poller import get_task_file_poller
+from app.core.terminal_focus import register_session as register_terminal
 from app.models.events import Event, EventType
 
 __all__ = [
@@ -45,6 +46,11 @@ async def handle_session_start(
     if task_poller:
         task_list_id = event.data.task_list_id if event.data else None
         await task_poller.start_polling(event.session_id, task_list_id=task_list_id)
+
+    # Record which terminal owns this session so the frontend can later focus it.
+    if event.data and event.data.terminal_pid:
+        register_terminal(event.session_id, event.data.terminal_pid)
+
     await broadcast_state(event.session_id, sm)
 
 

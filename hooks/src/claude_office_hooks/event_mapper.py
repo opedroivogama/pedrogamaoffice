@@ -94,6 +94,13 @@ def _handle_session_start(raw_data: dict[str, Any], data: dict[str, Any]) -> Non
     """Populate *data* for a session_start event."""
     source = raw_data.get("source", "unknown")
     data["summary"] = f"Session started ({source})"
+    # PID of the Claude Code (node) process. Backend walks up live at focus
+    # time to find the first ancestor that actually owns a visible window
+    # (cmd/powershell consoles don't — wt.exe / conhost.exe / VSCode do).
+    try:
+        data["terminal_pid"] = os.getppid()
+    except Exception:
+        pass
 
 
 def _handle_pre_compact(payload: dict[str, Any], data: dict[str, Any]) -> None:
