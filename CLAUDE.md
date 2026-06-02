@@ -12,24 +12,30 @@ See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for s
 
 ```bash
 # Root
-make install       # Install all dependencies
-make dev-tmux      # Run in tmux (recommended) - backend :8000, frontend :3000
-make dev-tmux-kill # Kill tmux session
-make checkall      # Lint, typecheck, test all components
-make simulate      # Run event simulation
+make install         # Install backend + frontend deps
+make install-all     # Same + hooks + opencode plugin
+make dev-tmux        # Run in tmux (recommended) - backend :8000, frontend :3000
+make dev-tmux-kill   # Kill tmux session
+make checkall        # fmt + lint + typecheck across all components
+make simulate        # Run event simulation
+make gen-types       # Regenerate frontend TS types from Pydantic models
 
 # Component-specific (run from backend/ or frontend/)
-make dev           # Start dev server
-make checkall      # Check single component (faster)
+make dev             # Start dev server
+make checkall        # Check single component (faster)
 uv run pytest tests/test_file.py::test_name  # Single backend test
 
-# Hooks (cd hooks/)
-./install.sh       # Install hooks
-./uninstall.sh     # Remove hooks
+# Hooks integration with Claude Code
+make hooks-install         # Install hooks (preferred over hooks/install.sh)
+make hooks-uninstall
+make hooks-status          # Show what's registered in ~/.claude
+make hooks-logs            # Tail recent hook activity
+make hooks-debug-on/off    # Toggle verbose hook logging
 
-# OpenCode Plugin (cd opencode-plugin/)
-bun run build      # Build plugin
-bun run typecheck  # Type check
+# OpenCode plugin (alternative to Claude Code CLI)
+make opencode-install      # Build + register plugin
+make opencode-uninstall
+make opencode-build        # Build without registering
 ```
 
 ## Development Workflow
@@ -57,6 +63,16 @@ See `.claude/skills/*/SKILL.md` for details.
 ```
 "Run 'make checkall' from the project root. If successful, commit with message: '<message>'"
 ```
+
+## Architecture Notes
+
+**Sidebar panel system** — Both side panels are a `SidebarStack` of `AccordionPanel`s registered in `frontend/src/components/sidebar/panelRegistry.tsx`. Panels are reorderable via `@dnd-kit` (`PanelDndProvider`); order/collapse/size persist in `layoutStore`. To add a new panel: write the component, register it in `panelRegistry`, no sidebar code changes needed.
+
+**Terminal focus (Windows)** — `backend/app/core/terminal_focus.py` records each session's Claude Code PID on `session_start` and walks up the process tree at focus time to find the first ancestor that owns a visible window (wt.exe / VSCode / Cursor — bare powershell/cmd don't own windows). Triggered by `POST /api/v1/sessions/{id}/focus`. No-op on macOS/Linux.
+
+**Database backend** — `DATABASE_URL` accepts both SQLite (default) and Postgres. The engine factory in `backend/app/db/database.py` picks per-dialect settings; SQLite uses StaticPool + WAL, Postgres uses asyncpg default pool. Boolean `server_default`s use `"false"` (Postgres-compatible) rather than `"0"`.
+
+**Session display name sync** — `POST /api/v1/sessions/refresh-names` scans each active session's JSONL transcript for the latest `ai-title` entry and updates `display_name`. Picks up both Claude Code's auto-generated titles and manual `/rename` slash commands. The refresh button is in the sessions sidebar header.
 
 ## Version Management
 
