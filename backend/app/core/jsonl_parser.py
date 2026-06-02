@@ -145,21 +145,25 @@ def get_first_user_prompt(jsonl_path: str | Path) -> str | None:
 
 
 def get_session_ai_title(jsonl_path: str | Path) -> str | None:
-    """Extract the latest AI-generated session title from a JSONL transcript.
+    """Extract the latest session title from a JSONL transcript.
 
-    Claude Code writes entries like::
+    Claude Code writes two title entry types:
 
-        {"type":"ai-title","aiTitle":"...","sessionId":"..."}
+      - ``{"type":"ai-title","aiTitle":"...","sessionId":"..."}`` — auto-generated
+        by Claude Code itself.
+      - ``{"type":"custom-title","customTitle":"...","sessionId":"..."}`` —
+        written by the ``/rename`` slash command.
 
-    The ``/rename`` slash command overwrites this same entry, so reading the
-    last occurrence yields whichever title is currently active.
+    Both are scanned; whichever appears LATEST in the file wins (last write
+    reflects the active title). A manual ``/rename`` therefore overrides an
+    earlier ai-title automatically.
 
     Args:
         jsonl_path: Path to the JSONL transcript file.
 
     Returns:
-        The latest aiTitle string, or None when the file is missing, unsafe,
-        or contains no ai-title entries.
+        The latest title string, or None when the file is missing, unsafe,
+        or contains no title entries.
     """
     path = Path(jsonl_path)
     if not is_safe_transcript_path(path):
@@ -169,7 +173,13 @@ def get_session_ai_title(jsonl_path: str | Path) -> str | None:
         logger.debug(f"Transcript file not found: {jsonl_path}")
         return None
 
-    last_title: str | None = None
+    # Track custom and ai titles independently because Claude Code writes them
+    # in PAIRS (custom-title imediatamente seguido de ai-title em cada snapshot).
+    # Se ambos coexistem, custom-title (manual /rename) sempre tem prioridade —
+    # caso contrário a auto-geração do ai-title constantemente sobrescreveria a
+    # renomeação manual feita pelo usuário.
+    last_custom: str | None = None
+    last_ai: str | None = None
 
     try:
         with open(path, encoding="utf-8") as f:
@@ -181,16 +191,20 @@ def get_session_ai_title(jsonl_path: str | Path) -> str | None:
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if record.get("type") != "ai-title":
-                    continue
-                title = record.get("aiTitle")
-                if isinstance(title, str) and title.strip():
-                    last_title = title.strip()
+                rec_type = record.get("type")
+                if rec_type == "custom-title":
+                    title = record.get("customTitle")
+                    if isinstance(title, str) and title.strip():
+                        last_custom = title.strip()
+                elif rec_type == "ai-title":
+                    title = record.get("aiTitle")
+                    if isinstance(title, str) and title.strip():
+                        last_ai = title.strip()
     except OSError as e:
         logger.warning(f"Error reading transcript file {jsonl_path}: {e}")
         return None
 
-    return last_title
+    return last_custom or last_ai
 
 
 def get_session_messages(
