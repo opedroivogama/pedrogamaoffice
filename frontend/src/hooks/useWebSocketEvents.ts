@@ -26,6 +26,9 @@ import type { GameState, WebSocketMessage, Position, EventType } from "@/types";
 
 interface UseWebSocketEventsOptions {
   sessionId: string;
+  /** Display name da sessão atual — usado nos toasts pra identificar de onde
+   *  veio o evento ("Claude terminou · <sessionLabel>"). */
+  sessionLabel?: string | null;
   enabled?: boolean;
 }
 
@@ -35,6 +38,7 @@ interface UseWebSocketEventsOptions {
 
 export function useWebSocketEvents({
   sessionId,
+  sessionLabel,
   enabled = true,
 }: UseWebSocketEventsOptions): void {
   const wsRef = useRef<WebSocket | null>(null);
@@ -59,6 +63,9 @@ export function useWebSocketEvents({
   // Track the current session ID for message validation
   const currentSessionIdRef = useRef(sessionId);
   currentSessionIdRef.current = sessionId;
+  // Mantém o display name corrente pro toast saber QUAL sessão terminou.
+  const currentSessionLabelRef = useRef(sessionLabel ?? null);
+  currentSessionLabelRef.current = sessionLabel ?? null;
 
   // Track whether initial queue sync has been done for this session
   // (prevents backend queue state from overwriting frontend's animated queue)
@@ -215,16 +222,29 @@ export function useWebSocketEvents({
       store.updateBossBackendState(state.boss.state);
       store.updateBossTask(state.boss.currentTask ?? null);
 
-      // Enqueue boss bubble if present
+      // Enqueue boss bubble if present.
+      // Eco-killer: se o texto bater com o último balão do Pedro (= o
+      // prompt que ele acabou de mandar), ignora. Claude não precisa
+      // repetir o que Pedro acabou de falar ao vivo — bug visual antigo
+      // onde a fala do user vazava na boca do Claude.
       if (state.boss.bubble) {
         const bubbleText = state.boss.bubble.text;
-        const lastSeen = lastSeenBubbleTextRef.current.get("boss");
-        // Only enqueue if backend sent a NEW bubble text (not the same as last time)
-        if (bubbleText !== lastSeen) {
+        const pedroBubble = store.userAvatarBubbles.get("pedro") ?? "";
+        const isPedroEcho =
+          pedroBubble.length > 0 &&
+          (bubbleText === pedroBubble ||
+            bubbleText.startsWith(pedroBubble.slice(0, 80)) ||
+            pedroBubble.startsWith(bubbleText.slice(0, 80)));
+        if (isPedroEcho) {
           lastSeenBubbleTextRef.current.set("boss", bubbleText);
-          const alreadyHas = store.hasBubbleText("boss", bubbleText);
-          if (!alreadyHas) {
-            enqueueBubble("boss", state.boss.bubble);
+        } else {
+          const lastSeen = lastSeenBubbleTextRef.current.get("boss");
+          if (bubbleText !== lastSeen) {
+            lastSeenBubbleTextRef.current.set("boss", bubbleText);
+            const alreadyHas = store.hasBubbleText("boss", bubbleText);
+            if (!alreadyHas) {
+              enqueueBubble("boss", state.boss.bubble);
+            }
           }
         }
       }
@@ -301,6 +321,28 @@ export function useWebSocketEvents({
           case "event":
             if (message.event) {
               addEventLog(message.event);
+
+              // User submitted a prompt in the terminal — show it as Pedro
+              // speaking to Claude. The bubble appears over the Pedro avatar
+              // (see UserAvatar in OfficeGame), so the user sees themselves
+              // giving the command before Claude's normal response animation
+              // (phone ringing → working) kicks in.
+              if (message.event.type === "user_prompt_submit") {
+                const prompt =
+                  message.event.detail?.prompt ??
+                  message.event.summary.replace(/^User:\s*/, "");
+                const text = prompt.trim();
+                if (text) {
+                  // Soft-cap so a wall of text doesn't render as a giant bubble.
+                  // The UserAvatar bubble renders with its own larger maxChars
+                  // override (see OfficeGame.tsx) so this 300 ceiling sticks.
+                  const truncated =
+                    text.length > 300 ? text.slice(0, 297) + "..." : text;
+                  useGameStore
+                    .getState()
+                    .setUserAvatarBubble("pedro", truncated);
+                }
+              }
 
               // Clear processed agents on session_start to allow re-detection
               // This is needed when simulation re-runs with the same session ID and agent IDs
@@ -392,6 +434,7 @@ export function useWebSocketEvents({
                     type: message.event.type as EventType,
                     agentId: message.event.agentId ?? null,
                     agentName: message.event.detail?.agentName ?? null,
+                    sessionLabel: currentSessionLabelRef.current,
                     taskDescription:
                       message.event.detail?.taskDescription ?? null,
                     errorType: message.event.detail?.errorType ?? null,
@@ -405,6 +448,14 @@ export function useWebSocketEvents({
           case "git_status":
             if (message.gitStatus) {
               setGitStatus(message.gitStatus);
+            }
+            break;
+
+          case "boss_walk_to":
+            if (typeof message.x === "number" && typeof message.y === "number") {
+              useGameStore
+                .getState()
+                .setBossWalkTarget({ x: message.x, y: message.y });
             }
             break;
 
@@ -478,12 +529,17 @@ export function useWebSocketEvents({
       handleMessage(event);
     };
 
-    ws.onerror = (error) => {
+    ws.onerror = () => {
       // Check if this connection is still current
       if (connectionIdRef.current !== thisConnectionId) {
         return;
       }
-      console.error("[WS] Error:", error);
+      // `WebSocket.onerror` always fires a blank Event — no useful fields.
+      // The real cause shows up on `onclose` (code/reason) below, so we just
+      // log the URL + readyState here for context and let onclose explain why.
+      console.error(
+        `[WS] Error connecting to ${ws.url} (readyState=${ws.readyState})`,
+      );
     };
 
     ws.onclose = (event) => {
@@ -492,7 +548,15 @@ export function useWebSocketEvents({
         return;
       }
 
-      void event; // Acknowledge parameter
+      // Surface the close code/reason. 1000 = clean close; 1006 = abnormal
+      // (server unreachable, dropped, etc.); 1011 = backend exception;
+      // 4xxx = app-defined (e.g. unknown sessionId from the WS handler).
+      if (event.code !== 1000) {
+        console.warn(
+          `[WS] Closed code=${event.code} reason=${event.reason || "(none)"} wasClean=${event.wasClean}`,
+        );
+      }
+
       setConnected(false);
 
       // Attempt reconnection after 2 seconds if still enabled and same session

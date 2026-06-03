@@ -42,6 +42,9 @@ export const PRINTER_STATION_POSITION = { x: 50, y: 945 };
 /** Plant position (to the right of printer) */
 export const PLANT_POSITION = { x: 118, y: 970 };
 
+/** Radio (boombox) position — diagonal mirror of the printer (bottom-right floor) */
+export const RADIO_POSITION = { x: 1230, y: 945 };
+
 // ============================================================================
 // BOSS AREA
 // ============================================================================

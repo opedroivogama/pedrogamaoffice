@@ -17,6 +17,7 @@ export default function AgentPopup(): ReactNode {
   const agents = useGameStore((s) => s.agents);
   const boss = useGameStore((s) => s.boss);
   const sessionId = useGameStore(selectSessionId);
+  const setControlledEntity = useGameStore((s) => s.setControlledEntity);
   const { t } = useTranslation();
 
   const handleFocusTerminal = useCallback(() => {
@@ -24,11 +25,24 @@ export default function AgentPopup(): ReactNode {
     focusAgentTerminal(sessionId, focusPopup?.agentId ?? null);
   }, [sessionId, focusAgentTerminal, focusPopup]);
 
+  const handleTakeControl = useCallback(() => {
+    if (!focusPopup) return;
+    setControlledEntity(focusPopup.agentId);
+    closeFocusPopup();
+  }, [focusPopup, setControlledEntity, closeFocusPopup]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeFocusPopup();
+      if (e.key === "Escape") {
+        closeFocusPopup();
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleTakeControl();
+      }
     },
-    [closeFocusPopup],
+    [closeFocusPopup, handleTakeControl],
   );
 
   useEffect(() => {
@@ -73,7 +87,7 @@ export default function AgentPopup(): ReactNode {
     >
       <div className="absolute inset-0" />
       <div
-        className="absolute bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl p-4"
+        className="absolute bg-jp-surface-1 border border-neutral-700 rounded-xl shadow-2xl p-4"
         style={{ left: x, top: y, width: POPUP_WIDTH }}
       >
         <div className="flex items-center gap-2 mb-3">
@@ -114,19 +128,27 @@ export default function AgentPopup(): ReactNode {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <button
-            onClick={handleFocusTerminal}
-            className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+            onClick={handleTakeControl}
+            className="w-full bg-jp-gold hover:bg-jp-gold-soft text-jp-surface-1 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
           >
-            {t("attention.popup.focusTerminal")}
+            {t("attention.popup.takeControl")}
           </button>
-          <button
-            onClick={closeFocusPopup}
-            className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
-          >
-            {t("attention.popup.close")}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleFocusTerminal}
+              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+            >
+              {t("attention.popup.focusTerminal")}
+            </button>
+            <button
+              onClick={closeFocusPopup}
+              className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+            >
+              {t("attention.popup.close")}
+            </button>
+          </div>
         </div>
       </div>
     </div>

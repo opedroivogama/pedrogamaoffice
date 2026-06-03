@@ -139,14 +139,14 @@ export function MobileDrawer({
       />
 
       {/* Drawer Panel */}
-      <div className="absolute left-0 top-0 bottom-0 w-80 bg-slate-900 border-r border-slate-800 overflow-y-auto animate-in slide-in-from-left duration-300">
+      <div className="absolute left-0 top-0 bottom-0 w-80 bg-jp-surface-1 border-r border-jp-divider-soft overflow-y-auto animate-in slide-in-from-left duration-300">
         <div className="p-4">
           {/* Drawer Header */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-white">{t("mobile.menu")}</h2>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"
+              className="p-2 hover:bg-jp-surface-2 rounded-lg text-jp-fg-muted"
             >
               <X size={20} />
             </button>
@@ -181,20 +181,20 @@ export function MobileDrawer({
           <div className="mb-6">
             <div className="flex items-center gap-2 mb-3">
               <History size={14} className="text-purple-500" />
-              <span className="text-slate-300 font-bold uppercase tracking-wider text-xs">
+              <span className="text-jp-fg font-bold uppercase tracking-wider text-xs">
                 {t("sessions.title")}
               </span>
-              <span className="text-slate-600 text-xs">
+              <span className="text-jp-fg-dim text-xs">
                 ({sessions.length})
               </span>
             </div>
             <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
               {sessionsLoading && sessions.length === 0 ? (
-                <div className="p-4 text-center text-slate-600 text-xs italic">
+                <div className="p-4 text-center text-jp-fg-dim text-xs italic">
                   {t("sessions.loading")}
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="p-4 text-center text-slate-600 text-xs italic">
+                <div className="p-4 text-center text-jp-fg-dim text-xs italic">
                   {t("sessions.noSessions")}
                 </div>
               ) : (
@@ -218,7 +218,7 @@ export function MobileDrawer({
                         className={`px-3 py-2.5 rounded-md cursor-pointer transition-colors ${
                           primary.id === sessionId
                             ? "bg-purple-500/20 border-l-2 border-purple-500"
-                            : "hover:bg-slate-800/50"
+                            : "hover:bg-jp-surface-2/50"
                         }`}
                         onClick={() => {
                           onSessionSelect(primary.id);
@@ -239,19 +239,19 @@ export function MobileDrawer({
                               className="text-emerald-400 animate-pulse"
                             />
                           ) : (
-                            <PlayCircle size={10} className="text-slate-500" />
+                            <PlayCircle size={10} className="text-jp-fg-dim" />
                           )}
                           <span
                             className={`text-xs font-bold truncate ${
                               primary.id === sessionId
                                 ? "text-purple-300"
-                                : "text-slate-300"
+                                : "text-jp-fg"
                             }`}
                           >
                             {projectKey}
                           </span>
                         </div>
-                        <div className="flex justify-between text-[10px] text-slate-500">
+                        <div className="flex justify-between text-[10px] text-jp-fg-dim">
                           <span>
                             {t("sessions.events", {
                               count: primary.eventCount,
@@ -271,7 +271,7 @@ export function MobileDrawer({
                           <button
                             type="button"
                             onClick={() => toggleGroup(projectKey)}
-                            className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-slate-600 hover:text-slate-400 font-mono transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-jp-fg-dim hover:text-jp-fg-muted font-mono transition-colors"
                           >
                             {isExpanded ? (
                               <ChevronDown size={10} />
@@ -291,7 +291,7 @@ export function MobileDrawer({
                                 className={`px-3 py-1.5 pl-7 rounded-md cursor-pointer transition-colors ${
                                   session.id === sessionId
                                     ? "bg-purple-500/20 border-l-2 border-purple-500"
-                                    : "hover:bg-slate-800/50"
+                                    : "hover:bg-jp-surface-2/50"
                                 }`}
                                 onClick={() => {
                                   onSessionSelect(session.id);
@@ -308,12 +308,12 @@ export function MobileDrawer({
                                 <div className="flex items-center gap-2">
                                   <PlayCircle
                                     size={8}
-                                    className="text-slate-600"
+                                    className="text-jp-fg-dim"
                                   />
-                                  <span className="text-[10px] text-slate-500 font-mono truncate flex-1">
+                                  <span className="text-[10px] text-jp-fg-dim font-mono truncate flex-1">
                                     {session.id.slice(0, 12)}
                                   </span>
-                                  <span className="text-[10px] text-slate-600">
+                                  <span className="text-[10px] text-jp-fg-dim">
                                     {formatDistanceToNow(
                                       new Date(session.updatedAt),
                                       {

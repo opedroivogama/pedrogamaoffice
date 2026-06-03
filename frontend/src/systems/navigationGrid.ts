@@ -88,16 +88,48 @@ export interface DynamicObstacle {
   expiresAt?: number;
 }
 
+const CUSTOM_OVERRIDES_KEY = "office.collisionEditor.overrides.v1";
+
+type OverrideMap = Record<string, TileType>; // key = "gx,gy"
+
+function loadOverrides(): OverrideMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_OVERRIDES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    return parsed as OverrideMap;
+  } catch {
+    return {};
+  }
+}
+
+function saveOverrides(overrides: OverrideMap): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      CUSTOM_OVERRIDES_KEY,
+      JSON.stringify(overrides),
+    );
+  } catch {
+    // Storage may be full or disabled; ignore.
+  }
+}
+
 /**
  * Navigation grid for A* pathfinding.
  */
 export class NavigationGrid {
   private staticGrid: Uint8Array;
   private dynamicObstacles: Map<string, DynamicObstacle> = new Map();
+  private overrides: OverrideMap;
+  private changeListeners: Set<() => void> = new Set();
 
   constructor() {
     this.staticGrid = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
     this.initializeStaticGrid();
+    this.overrides = loadOverrides();
   }
 
   /**
@@ -251,12 +283,143 @@ export class NavigationGrid {
 
   /**
    * Get the static tile type at grid coordinates.
+   * User overrides (from the collision editor) take precedence over the
+   * hardcoded layout.
    */
   getStaticTile(gx: number, gy: number): TileType {
     if (!this.isValidTile(gx, gy)) {
       return TileType.WALL;
     }
+    const overrideKey = `${gx},${gy}`;
+    if (overrideKey in this.overrides) {
+      return this.overrides[overrideKey];
+    }
     return this.staticGrid[this.getTileIndex(gx, gy)] as TileType;
+  }
+
+  /**
+   * Get the default (non-overridden) tile type. Used by the editor to know
+   * whether to display an "edited" marker.
+   */
+  getDefaultTile(gx: number, gy: number): TileType {
+    if (!this.isValidTile(gx, gy)) {
+      return TileType.WALL;
+    }
+    return this.staticGrid[this.getTileIndex(gx, gy)] as TileType;
+  }
+
+  /**
+   * Set a user override for a tile and persist to localStorage.
+   * Pass `null` to clear the override (revert to default).
+   */
+  setOverride(gx: number, gy: number, type: TileType | null): void {
+    if (!this.isValidTile(gx, gy)) return;
+    const key = `${gx},${gy}`;
+    if (type === null) {
+      delete this.overrides[key];
+    } else {
+      this.overrides[key] = type;
+    }
+    saveOverrides(this.overrides);
+    this.notifyChange();
+  }
+
+  /**
+   * Clear all user overrides (revert all tiles to defaults).
+   */
+  clearAllOverrides(): void {
+    this.overrides = {};
+    saveOverrides(this.overrides);
+    this.notifyChange();
+  }
+
+  /**
+   * Number of user-overridden tiles currently active.
+   */
+  getOverrideCount(): number {
+    return Object.keys(this.overrides).length;
+  }
+
+  /**
+   * Snapshot of all current overrides for export/serialization.
+   * Returns a plain object safe to JSON.stringify.
+   */
+  exportOverrides(): OverrideMap {
+    return { ...this.overrides };
+  }
+
+  /**
+   * Replace all overrides with the given snapshot. Used by import.
+   * Validates that values are sane TileType values and keys look like "gx,gy".
+   */
+  importOverrides(snapshot: unknown): number {
+    if (typeof snapshot !== "object" || snapshot === null) {
+      throw new Error("Snapshot must be an object");
+    }
+    const validTypes = new Set([
+      TileType.FLOOR,
+      TileType.WALL,
+      TileType.DESK,
+      TileType.ELEVATOR,
+      TileType.BOSS_DESK,
+    ]);
+    const next: OverrideMap = {};
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (!/^\d+,\d+$/.test(key)) continue;
+      const [gx, gy] = key.split(",").map(Number);
+      if (!this.isValidTile(gx, gy)) continue;
+      if (typeof value !== "number" || !validTypes.has(value)) continue;
+      next[key] = value as TileType;
+    }
+    this.overrides = next;
+    saveOverrides(this.overrides);
+    this.notifyChange();
+    return Object.keys(next).length;
+  }
+
+  /**
+   * Subscribe to grid mutations (override edits). Returns unsubscribe.
+   */
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  private notifyChange(): void {
+    for (const fn of this.changeListeners) fn();
+  }
+
+  // Undo history — stack of snapshots taken at the start of each stroke.
+  private undoStack: OverrideMap[] = [];
+  private readonly UNDO_LIMIT = 30;
+
+  /**
+   * Save a snapshot before starting a paint stroke. Called once on
+   * pointerdown so a whole drag becomes a single undo step.
+   */
+  beginStroke(): void {
+    this.undoStack.push({ ...this.overrides });
+    if (this.undoStack.length > this.UNDO_LIMIT) {
+      this.undoStack.shift();
+    }
+  }
+
+  /**
+   * Revert to the previous snapshot. Returns true if a snapshot was applied.
+   */
+  undo(): boolean {
+    const prev = this.undoStack.pop();
+    if (!prev) return false;
+    this.overrides = prev;
+    saveOverrides(this.overrides);
+    this.notifyChange();
+    return true;
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
   }
 
   /**
@@ -395,6 +558,42 @@ export class NavigationGrid {
       grid.push(row);
     }
     return grid;
+  }
+
+  /**
+   * Flatten every tile (including FLOOR) for the editor overlay. Each entry
+   * carries world bounds, current effective type, and a flag indicating
+   * whether the tile is currently overridden by the user.
+   */
+  getAllTilesForEditor(): Array<{
+    gx: number;
+    gy: number;
+    x: number;
+    y: number;
+    type: TileType;
+    overridden: boolean;
+  }> {
+    const tiles: Array<{
+      gx: number;
+      gy: number;
+      x: number;
+      y: number;
+      type: TileType;
+      overridden: boolean;
+    }> = [];
+    for (let gy = 0; gy < GRID_HEIGHT; gy++) {
+      for (let gx = 0; gx < GRID_WIDTH; gx++) {
+        tiles.push({
+          gx,
+          gy,
+          x: gx * TILE_SIZE,
+          y: gy * TILE_SIZE,
+          type: this.getStaticTile(gx, gy),
+          overridden: `${gx},${gy}` in this.overrides,
+        });
+      }
+    }
+    return tiles;
   }
 }
 

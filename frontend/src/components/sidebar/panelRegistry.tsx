@@ -6,7 +6,10 @@ import {
   Clock,
   Folder,
   GitBranch,
+  LayoutGrid,
+  MessageCircle,
   MessageSquare,
+  Pin,
   Radio,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +22,9 @@ import { ConversationHistory } from "@/components/game/ConversationHistory";
 import { AmbientRadio } from "@/components/radio/AmbientRadio";
 import { SessionHistoryPanel } from "@/components/layout/SessionHistoryPanel";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
+import { ChatPanel } from "@/components/sidebar/panels/ChatPanel";
+import { MenuPanel } from "@/components/sidebar/panels/MenuPanel";
+import { PinnedFoldersPanel } from "@/components/sidebar/panels/PinnedFoldersPanel";
 import { SessionsPanel } from "@/components/sidebar/panels/SessionsPanel";
 
 // ============================================================================
@@ -44,12 +50,26 @@ export interface PanelDefinition {
 
 export const PANEL_REGISTRY: Record<PanelId, PanelDefinition> = {
   // ── LEFT SIDEBAR ───────────────────────────────────────────────────
+  menu: {
+    id: "menu",
+    sidebar: "left",
+    title: "Menu",
+    icon: LayoutGrid,
+    render: () => <MenuPanel />,
+  },
   sessions: {
     id: "sessions",
     sidebar: "left",
     title: "Sessões",
     icon: Folder,
     render: () => <SessionsPanel />,
+  },
+  "pinned-folders": {
+    id: "pinned-folders",
+    sidebar: "left",
+    title: "Pastas",
+    icon: Pin,
+    render: () => <PinnedFoldersPanel />,
   },
   "git-status": {
     id: "git-status",
@@ -60,6 +80,13 @@ export const PANEL_REGISTRY: Record<PanelId, PanelDefinition> = {
   },
 
   // ── RIGHT SIDEBAR ──────────────────────────────────────────────────
+  "chat-claude": {
+    id: "chat-claude",
+    sidebar: "right",
+    title: "Pergunta ao Claude",
+    icon: MessageCircle,
+    render: () => <ChatPanel />,
+  },
   "agent-status": {
     id: "agent-status",
     sidebar: "right",

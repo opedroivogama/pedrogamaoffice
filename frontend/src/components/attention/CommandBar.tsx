@@ -200,7 +200,7 @@ export default function CommandBar(): ReactNode {
       <div className="absolute inset-0 bg-black/50" />
 
       {/* Command palette */}
-      <div className="relative w-full max-w-lg bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-lg bg-jp-surface-1 border border-neutral-700 rounded-xl shadow-2xl overflow-hidden">
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800">
           <span className="text-neutral-500">{"\uD83D\uDD0D"}</span>

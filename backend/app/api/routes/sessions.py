@@ -284,19 +284,27 @@ class RefreshNamesResult(TypedDict):
     scanned: int
 
 
-@router.post("/refresh-names")
-async def refresh_session_names(
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> RefreshNamesResult:
-    """Refresh display names from each session's JSONL ai-title entry.
+async def refresh_display_names_from_transcripts(
+    db: AsyncSession,
+    *,
+    broadcast: bool = True,
+) -> tuple[int, int, list[str]]:
+    """Scan every session's JSONL and update display_name when it changed.
 
-    Walks every session in the database, locates its latest event that carries
-    a transcript_path, reads the most recent ``ai-title`` from that JSONL, and
-    overwrites ``display_name`` when it differs. ``/rename`` in Claude Code
-    overwrites the same ``ai-title`` entry, so this picks up renames too.
+    Shared core logic between the HTTP endpoint and the startup task. Walks
+    every session in ``db``, locates its latest event with a ``transcript_path``,
+    reads the most recent title (``custom-title`` wins over ``ai-title``) and
+    overwrites ``display_name`` when different.
+
+    Args:
+        db: Async DB session (caller commits implicitly when changes occur).
+        broadcast: When True, broadcasts a ``sessions_renamed`` WebSocket event
+            to all connected clients. Set False during startup (no clients yet).
 
     Returns:
-        A summary with the number of sessions scanned and updated.
+        ``(scanned, updated, changed_ids)`` — scanned counts sessions whose
+        transcript was actually read; updated counts those whose display_name
+        was overwritten.
     """
     settings = get_settings()
     sessions_result = await db.execute(select(SessionRecord))
@@ -341,16 +349,34 @@ async def refresh_session_names(
 
     if updated:
         await db.commit()
-        await manager.broadcast_all(
-            {
-                "type": "sessions_renamed",
-                "session_ids": changed_ids,
-                "timestamp": "",
-            }
-        )
+        if broadcast:
+            await manager.broadcast_all(
+                {
+                    "type": "sessions_renamed",
+                    "session_ids": changed_ids,
+                    "timestamp": "",
+                }
+            )
     else:
         await db.rollback()
 
+    return scanned, updated, changed_ids
+
+
+@router.post("/refresh-names")
+async def refresh_session_names(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RefreshNamesResult:
+    """Refresh display names from each session's JSONL title entries.
+
+    Scans every session's transcript, picks the latest ``custom-title``
+    (manual ``/rename``) or fallback ``ai-title`` (auto), and updates
+    ``display_name`` when it changed. Also called automatically at startup.
+
+    Returns:
+        A summary with the number of sessions scanned and updated.
+    """
+    scanned, updated, _ = await refresh_display_names_from_transcripts(db)
     return {"status": "success", "updated": updated, "scanned": scanned}
 
 
@@ -555,6 +581,60 @@ async def _recover_workdir_from_events(db: AsyncSession, session_id: str) -> str
     return None
 
 
+def _find_workdir_from_jsonl(session_id: str) -> str | None:
+    """Localiza o JSONL real da sessão em ``~/.claude/projects/`` e extrai
+    o ``cwd`` registrado pelo próprio Claude Code.
+
+    Essa é a fonte de verdade do CWD original — o JSONL fica num diretório
+    cujo hash deriva do CWD onde o ``claude`` foi iniciado. Se o backend
+    registrou ``project_root`` errado (ex: hook reportou um workspace que
+    não bate com o CWD), usar o JSONL como fonte primária resolve o caso
+    "No conversation found" que o ``claude --resume`` cospe quando o
+    terminal abre na pasta errada.
+
+    Returns ``None`` se nenhum JSONL com esse session_id for encontrado, ou
+    se nenhum evento dentro dele tiver um ``cwd`` preenchido.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    projects_dir = _Path.home() / ".claude" / "projects"
+    if not projects_dir.is_dir():
+        return None
+
+    target_name = f"{session_id}.jsonl"
+    try:
+        candidates = list(projects_dir.glob(f"*/{target_name}"))
+    except OSError:
+        return None
+    if not candidates:
+        return None
+
+    # Pega o mais recente — se houver mais de um (renomeio de projeto), o
+    # último escrito é o mais provável de refletir o CWD ativo da sessão.
+    jsonl_path = max(candidates, key=lambda p: p.stat().st_mtime)
+
+    try:
+        with jsonl_path.open("r", encoding="utf-8") as f:
+            for _ in range(50):  # primeiros 50 eventos têm o cwd quase sempre
+                line = f.readline()
+                if not line:
+                    break
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                cwd = cast(dict[str, Any], obj).get("cwd")
+                if isinstance(cwd, str) and cwd:
+                    return cwd
+    except OSError:
+        return None
+
+    return None
+
+
 @router.post("/{session_id}/resume")
 async def resume_session(
     session_id: str,
@@ -584,10 +664,14 @@ async def resume_session(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        workdir = session.last_cwd or session.project_root
+        # Fonte primária de verdade: o JSONL real escrito pelo Claude Code.
+        # O hash do diretório onde ele vive deriva do CWD original — se a
+        # gente não respeitar isso, `claude --resume` busca o transcript no
+        # hash do CWD passado e devolve "No conversation found".
+        jsonl_workdir = _find_workdir_from_jsonl(session_id)
+
+        workdir = jsonl_workdir or session.last_cwd or session.project_root
         if not workdir:
-            # Sessions that predate the last_cwd column can still be recovered
-            # by mining the persisted event JSON for a directory hint.
             workdir = await _recover_workdir_from_events(db, session_id)
             if workdir:
                 session.last_cwd = workdir
@@ -597,6 +681,12 @@ async def resume_session(
                 status_code=400,
                 detail="Session has no recorded working directory",
             )
+
+        # Se o JSONL discordou do que está no DB, atualiza o registro pra
+        # próxima chamada não precisar varrer o disco de novo.
+        if jsonl_workdir and session.last_cwd != jsonl_workdir:
+            session.last_cwd = jsonl_workdir
+            await db.commit()
 
         cmd = _build_resume_command(workdir, session_id)
         if cmd is None:
@@ -718,6 +808,26 @@ async def trigger_simulation() -> dict[str, str]:
     except Exception as e:
         logger.exception("Error in trigger_simulation: %s", e)
         raise HTTPException(status_code=500, detail="Failed to start simulation") from e
+
+
+@router.get("/simulate/status")
+async def get_simulation_status() -> dict[str, bool]:
+    """Return whether the background simulation process is currently alive."""
+    running = (
+        _simulation_process is not None and _simulation_process.poll() is None
+    )
+    return {"running": running}
+
+
+@router.delete("/simulate")
+async def stop_simulation() -> dict[str, str | bool]:
+    """Stop the background simulation process if it is running."""
+    was_running = kill_simulation()
+    return {
+        "status": "success",
+        "stopped": was_running,
+        "message": "Simulation stopped" if was_running else "No simulation running",
+    }
 
 
 @router.delete("")

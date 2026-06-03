@@ -277,7 +277,11 @@ async def enrich_agent_with_summaries(
     )
     task_source = event_data.task_description or event_data.agent_name or ""
 
-    if name_source:
+    if event_data.preserve_agent_name and event_data.agent_name:
+        from app.core.summary_service import SummaryService
+
+        agent.name = SummaryService.dedupe_name(event_data.agent_name, existing_names)
+    elif name_source:
         agent.name = await summary_service.generate_agent_name(
             name_source, existing_names, agent_type=event_data.agent_type
         )
@@ -358,13 +362,11 @@ async def extract_and_set_agent_speech(
     if not response:
         return
 
-    summary_service = get_summary_service()
-    summary = await summary_service.summarize_response(response)
-
-    if summary:
-        sm.agents[agent_id].bubble = BubbleContent(
-            type=BubbleType.SPEECH,
-            text=summary,
-            icon="✅",
-        )
-        logger.debug(f"Set agent {agent_id} completion summary: {summary[:50]}...")
+    # Texto cru do que o sub-agente disse — sem resumo por IA. Frontend
+    # trunca via truncateBubbleText (140 chars).
+    sm.agents[agent_id].bubble = BubbleContent(
+        type=BubbleType.SPEECH,
+        text=response,
+        icon="✅",
+    )
+    logger.debug(f"Set agent {agent_id} raw response: {response[:50]}...")

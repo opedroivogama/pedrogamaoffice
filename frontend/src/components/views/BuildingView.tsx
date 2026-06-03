@@ -28,7 +28,7 @@ function FloorRow({
       onClick={(e) => onClick({ x: e.clientX, y: e.clientY })}
       data-tour-id={`floor-${floor.id}`}
       data-floor-id={floor.id}
-      className="group flex items-stretch w-full rounded-lg border border-slate-700 bg-slate-900 hover:border-slate-500 hover:bg-slate-800 transition-all duration-200"
+      className="group flex items-stretch w-full rounded-lg border border-jp-divider bg-jp-surface-1 hover:border-jp-border-light hover:bg-jp-surface-2 transition-all duration-200"
     >
       {/* Floor number badge */}
       <div
@@ -45,7 +45,7 @@ function FloorRow({
           <span className="text-lg font-bold" style={{ color: floor.accent }}>
             {floor.name}
           </span>
-          <span className="text-xs text-slate-500 font-mono">
+          <span className="text-xs text-jp-fg-dim font-mono">
             {roomCount} room{roomCount !== 1 ? "s" : ""}
             {activeSessionCount > 0 && (
               <>
@@ -59,7 +59,7 @@ function FloorRow({
       </div>
 
       {/* Arrow */}
-      <div className="flex items-center px-4 text-slate-600 group-hover:text-slate-400 transition-colors">
+      <div className="flex items-center px-4 text-jp-fg-dim group-hover:text-jp-fg-muted transition-colors">
         &rarr;
       </div>
     </button>
@@ -130,14 +130,14 @@ export function BuildingView({ sessions }: BuildingViewProps): React.ReactNode {
           {buildingConfig.buildingName}
         </h2>
         <div className="flex items-center justify-center gap-3">
-          <p className="text-sm text-slate-500 font-mono">
+          <p className="text-sm text-jp-fg-dim font-mono">
             {buildingConfig.floors.length} floor
             {buildingConfig.floors.length !== 1 ? "s" : ""}
           </p>
           <button
             type="button"
             onClick={requestEditBuilding}
-            className="text-xs text-slate-500 hover:text-purple-400 font-mono px-2 py-0.5 border border-slate-700 hover:border-purple-500 rounded transition-colors"
+            className="text-xs text-jp-fg-dim hover:text-purple-400 font-mono px-2 py-0.5 border border-jp-divider hover:border-purple-500 rounded transition-colors"
           >
             Edit
           </button>
@@ -147,7 +147,7 @@ export function BuildingView({ sessions }: BuildingViewProps): React.ReactNode {
       {/* Building cross-section */}
       <div className="w-full max-w-2xl flex flex-col gap-2">
         {/* Roof */}
-        <div className="h-2 bg-slate-800 rounded-t-lg mx-4" />
+        <div className="h-2 bg-jp-surface-2 rounded-t-lg mx-4" />
 
         {/* Floors sorted top-down by floor number (highest first) */}
         {sortedFloors.map((floor) => {
@@ -178,7 +178,7 @@ export function BuildingView({ sessions }: BuildingViewProps): React.ReactNode {
             });
             goToFloor(LOBBY_FLOOR_ID);
           }}
-          className="group flex items-stretch w-full rounded-lg border border-dashed border-slate-800 hover:border-slate-600 bg-slate-900/30 hover:bg-slate-900/60 transition-all duration-200"
+          className="group flex items-stretch w-full rounded-lg border border-dashed border-jp-divider-soft hover:border-jp-divider bg-jp-surface-1/30 hover:bg-jp-surface-1/60 transition-all duration-200"
         >
           {/* Badge */}
           <div className="flex items-center justify-center w-16 rounded-l-lg text-2xl">
@@ -188,10 +188,10 @@ export function BuildingView({ sessions }: BuildingViewProps): React.ReactNode {
           {/* Info */}
           <div className="flex-grow flex items-center gap-4 px-5 py-3">
             <div className="flex flex-col items-start">
-              <span className="text-sm text-slate-400 font-bold group-hover:text-slate-300 transition-colors">
+              <span className="text-sm text-jp-fg-muted font-bold group-hover:text-jp-fg transition-colors">
                 Lobby
               </span>
-              <span className="text-xs text-slate-600 font-mono">
+              <span className="text-xs text-jp-fg-dim font-mono">
                 {unmatchedSessions.length > 0
                   ? `${unmatchedSessions.length} active unassigned`
                   : "All sessions assigned"}
@@ -200,13 +200,13 @@ export function BuildingView({ sessions }: BuildingViewProps): React.ReactNode {
           </div>
 
           {/* Arrow */}
-          <div className="flex items-center px-4 text-slate-700 group-hover:text-slate-500 transition-colors">
+          <div className="flex items-center px-4 text-jp-fg-dim group-hover:text-jp-fg-dim transition-colors">
             &rarr;
           </div>
         </button>
 
         {/* Foundation */}
-        <div className="h-2 bg-slate-800 rounded-b-lg mx-4" />
+        <div className="h-2 bg-jp-surface-2 rounded-b-lg mx-4" />
       </div>
     </div>
   );

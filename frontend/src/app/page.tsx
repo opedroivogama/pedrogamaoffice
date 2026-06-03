@@ -13,7 +13,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useWebSocketEvents } from "@/hooks/useWebSocketEvents";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionSwitch } from "@/hooks/useSessionSwitch";
@@ -34,6 +34,7 @@ import { MobileDrawer } from "@/components/layout/MobileDrawer";
 import { MobileAgentActivity } from "@/components/layout/MobileAgentActivity";
 import { RightSidebar } from "@/components/layout/RightSidebar";
 import { HeaderControls } from "@/components/layout/HeaderControls";
+import { restartBackend } from "@/lib/api/restartBackend";
 import {
   StatusToast,
   type StatusMessage,
@@ -48,12 +49,18 @@ import { TourOverlay } from "@/components/tour/TourOverlay";
 import CommandBar from "@/components/attention/CommandBar";
 import AttentionToasts from "@/components/attention/AttentionToasts";
 import AgentPopup from "@/components/attention/AgentPopup";
+import ControlBanner from "@/components/attention/ControlBanner";
+import { usePlayerControl } from "@/hooks/usePlayerControl";
+import { useBossAutoWalk } from "@/hooks/useBossAutoWalk";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useLayoutStore } from "@/stores/layoutStore";
 import { PanelDndProvider } from "@/components/sidebar/PanelDndProvider";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useSimulationStatus } from "@/hooks/useSimulationStatus";
 import type { Session } from "@/hooks/useSessions";
+import { shouldIgnoreShortcut } from "@/utils/shortcutGate";
+import { ModelSelect } from "@/components/header/ModelSelect";
 
 // ============================================================================
 // DYNAMIC IMPORT
@@ -130,14 +137,69 @@ export default function V2TestPage(): React.ReactNode {
   const { sessions, sessionsLoading, sessionId, setSessionId, fetchSessions } =
     useSessions(showStatus);
 
+  // ChatPanel (Pergunte ao Claude) chama `requestSessionSwitch(thread.id)`
+  // sempre que a thread ativa muda — assim o WebSocket do painel passa a
+  // ouvir os hooks daquela conversa e o balão do Pedro reflete a mensagem
+  // enviada pelo painel "Pergunte ao Claude". Quando o pedido é aplicado,
+  // limpamos o campo pra evitar re-disparo em re-renders.
+  const pendingSessionSwitch = useGameStore((s) => s.pendingSessionSwitch);
+  const requestSessionSwitch = useGameStore((s) => s.requestSessionSwitch);
+  useEffect(() => {
+    if (pendingSessionSwitch && pendingSessionSwitch !== sessionId) {
+      setSessionId(pendingSessionSwitch);
+    }
+    if (pendingSessionSwitch) {
+      requestSessionSwitch(null);
+    }
+  }, [pendingSessionSwitch, sessionId, setSessionId, requestSessionSwitch]);
+
+  // Drives WASD/arrow movement for the currently controlled entity (if any).
+  usePlayerControl();
+
+  // Drives autonomous boss walking (set via backend POST /api/v1/boss/walk
+  // or /boss/wander). Independent from player control.
+  useBossAutoWalk();
+
   const {
     handleSessionSelect,
     handleDeleteSession,
     handleClearDB,
     handleSimulate,
+    handleStopSimulation,
     handleReset,
     handleRenameSession,
   } = useSessionSwitch({ sessionId, setSessionId, fetchSessions, showStatus });
+
+  const { running: simulationRunning, refresh: refreshSimulationStatus } =
+    useSimulationStatus();
+  const handleSimulateAndRefresh = useCallback(async () => {
+    await handleSimulate();
+    await refreshSimulationStatus();
+  }, [handleSimulate, refreshSimulationStatus]);
+  const handleStopAndRefresh = useCallback(async () => {
+    await handleStopSimulation();
+    await refreshSimulationStatus();
+  }, [handleStopSimulation, refreshSimulationStatus]);
+
+  // ------------------------------------------------------------------
+  // Backend restart (botão no menu superior)
+  // ------------------------------------------------------------------
+  const [restartingBackend, setRestartingBackend] = useState(false);
+  const handleRestartBackend = useCallback(async () => {
+    if (restartingBackend) return;
+    if (!window.confirm("Reiniciar o backend? Pode levar uns 5 segundos.")) {
+      return;
+    }
+    setRestartingBackend(true);
+    const result = await restartBackend();
+    if (!result.ok) {
+      window.alert(`Falha ao reiniciar: ${result.error}`);
+      setRestartingBackend(false);
+      return;
+    }
+    // 3s sleep do .bat + ~2s startup + folga.
+    window.setTimeout(() => setRestartingBackend(false), 6000);
+  }, [restartingBackend]);
 
   // ------------------------------------------------------------------
   // Store subscriptions
@@ -148,6 +210,9 @@ export default function V2TestPage(): React.ReactNode {
   const boss = useGameStore(selectBoss);
   const loadPersistedDebugSettings = useGameStore(
     (state) => state.loadPersistedDebugSettings,
+  );
+  const loadUserAvatarPositions = useGameStore(
+    (state) => state.loadUserAvatarPositions,
   );
   const loadPreferences = usePreferencesStore((s) => s.loadPreferences);
   const hydrateLayout = useLayoutStore((s) => s.hydrate);
@@ -180,7 +245,13 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   // WebSocket connection — reconnects when sessionId changes
   // ------------------------------------------------------------------
-  useWebSocketEvents({ sessionId });
+  // Resolve um rótulo curto pra sessão atual: displayName > label > id-curto.
+  // Usado pelos toasts pra dizer QUAL sessão disparou o evento.
+  const sessionLabel = useMemo(() => {
+    const s = sessions.find((x) => x.id === sessionId);
+    return s?.displayName ?? s?.label ?? sessionId.slice(0, 8);
+  }, [sessions, sessionId]);
+  useWebSocketEvents({ sessionId, sessionLabel });
 
   // ------------------------------------------------------------------
   // One-time initialization effects
@@ -197,6 +268,10 @@ export default function V2TestPage(): React.ReactNode {
   useEffect(() => {
     loadPersistedDebugSettings();
   }, [loadPersistedDebugSettings]);
+
+  useEffect(() => {
+    void loadUserAvatarPositions();
+  }, [loadUserAvatarPositions]);
 
   useEffect(() => {
     loadPreferences();
@@ -225,6 +300,7 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(e)) return;
       if (document.querySelector("[role='dialog'][aria-modal='true']")) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -405,6 +481,7 @@ export default function V2TestPage(): React.ReactNode {
                 v0.17.0
               </span>
             )}
+            {!isMobile && <ModelSelect />}
           </h1>
 
           {/* Breadcrumb — only when in building/floor view */}
@@ -421,12 +498,16 @@ export default function V2TestPage(): React.ReactNode {
             isConnected={isConnected}
             debugMode={debugMode}
             aiSummaryEnabled={aiSummaryEnabled}
-            onSimulate={handleSimulate}
+            simulationRunning={simulationRunning}
+            onSimulate={handleSimulateAndRefresh}
+            onStopSimulation={handleStopAndRefresh}
             onReset={handleReset}
             onClearDB={() => setIsClearModalOpen(true)}
             onToggleDebug={handleToggleDebug}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
             onOpenHelp={() => setIsHelpModalOpen(true)}
+            onRestartBackend={handleRestartBackend}
+            restartingBackend={restartingBackend}
           />
         )}
 
@@ -540,6 +621,7 @@ export default function V2TestPage(): React.ReactNode {
       <CommandBar />
       <AttentionToasts />
       <AgentPopup />
+      <ControlBanner />
 
       {/* ----------------------------------------------------------------
           Tour Overlay

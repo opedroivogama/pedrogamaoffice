@@ -17,6 +17,10 @@ export interface ArmDrawParams {
   endY: number;
   /** Fill color for the hand (hex number, e.g. 0x1f2937). */
   handColor: number;
+  /** Stroke color for the arm itself (defaults to white). */
+  armColor?: number;
+  /** Outline color around the arm/hand (defaults to white — keep white for old look). */
+  outlineColor?: number;
   /** Current animation offset (oscillates during typing). */
   animOffset?: number;
 }

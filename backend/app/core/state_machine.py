@@ -257,17 +257,20 @@ def _handle_pre_tool_use(sm: "StateMachine", event: Event) -> None:
 
 
 def _handle_user_prompt_submit(sm: "StateMachine", event: Event) -> None:
-    """Handle USER_PROMPT_SUBMIT: boss receives a new user prompt."""
+    """Handle USER_PROMPT_SUBMIT: boss receives a new user prompt.
+
+    Pedro's speech bubble is rendered over Pedro's own avatar by the frontend
+    (`setUserAvatarBubble("pedro", ...)` in useWebSocketEvents). The boss
+    bubble must NOT mirror the prompt — it's reserved for Claude's own
+    responses (set in `_handle_stop`). Setting both was producing duplicate
+    bubbles (Pedro's prompt showing on Claude's head too) which broke the
+    same-room conversation read.
+    """
     sm.boss_state = BossState.RECEIVING
     prompt_text = event.data.prompt if event.data else ""
     sm.print_report = False
     sm.last_user_prompt = prompt_text
     if prompt_text:
-        sm.boss_bubble = BubbleContent(
-            type=BubbleType.SPEECH,
-            text=prompt_text,
-            icon="📞",
-        )
         sm.boss_current_task = prompt_text
 
 
@@ -389,11 +392,11 @@ def _handle_stop(sm: "StateMachine", event: Event) -> None:
     sm.boss_bubble = BubbleContent(
         type=BubbleType.SPEECH,
         text=speech_text,
-        icon="📞",
+        # No phone icon — same-room conversation with Pedro, not a call.
         persistent=True,
     )
 
-    sm.whiteboard.add_news_item("session", "Job completed! Great work everyone!")
+    sm.whiteboard.add_news_item("session", "Tarefa concluída! Bom trabalho, time!")
 
 
 def _handle_session_end(sm: "StateMachine", event: Event) -> None:

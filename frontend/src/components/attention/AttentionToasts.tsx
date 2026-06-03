@@ -6,7 +6,7 @@ import { useAttentionStore, type UrgencyLevel } from "@/stores/attentionStore";
 
 const URGENCY_COLORS: Record<UrgencyLevel, string> = {
   critical: "border-red-500 bg-red-950/90 text-red-400",
-  high: "border-orange-500 bg-orange-950/90 text-orange-400",
+  high: "border-jp-gold bg-jp-gold/15/90 text-jp-gold-soft",
   low: "border-green-500 bg-green-950/90 text-green-400",
   info: "border-blue-500 bg-blue-950/90 text-blue-400",
 };
@@ -60,6 +60,7 @@ function ToastItem({
     id: string;
     urgencyLevel: UrgencyLevel;
     agentName: string | null;
+    sessionLabel: string | null;
     title: string;
     description: string;
     autoDismissMs: number | null;
@@ -69,7 +70,9 @@ function ToastItem({
 }): ReactNode {
   const colorClass = URGENCY_COLORS[toast.urgencyLevel];
   const icon = URGENCY_ICONS[toast.urgencyLevel];
-  const headline = toast.agentName ?? toast.title;
+  const headline = toast.title;
+  // Sublinha: prioriza nome do agente, cai pro label da sessão se faltar.
+  const subline = toast.agentName ?? toast.sessionLabel ?? null;
 
   useEffect(() => {
     if (toast.autoDismissMs === null) return;
@@ -85,7 +88,14 @@ function ToastItem({
     >
       <span className="text-sm shrink-0">{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold truncate">{headline}</p>
+        <div className="flex items-baseline gap-2">
+          <p className="text-xs font-bold truncate">{headline}</p>
+          {subline && (
+            <span className="text-[10px] opacity-70 truncate font-mono">
+              · {subline}
+            </span>
+          )}
+        </div>
         {toast.description && (
           <p className="text-[11px] opacity-80 truncate">{toast.description}</p>
         )}
@@ -98,7 +108,7 @@ function ToastItem({
         className="text-xs opacity-50 hover:opacity-100 shrink-0"
         aria-label="Dismiss"
       >
-        \u2715
+        {"\u2715"}
       </button>
     </div>
   );

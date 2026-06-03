@@ -1,43 +1,94 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   Jurídico Pro Design Tokens
+   Dark + dourado fosco. Aplicar em toda a UI chrome.
+   ============================================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand */
+  --jp-gold: #b8972a;
+  --jp-gold-soft: #c9a84c;
+  --jp-gold-deep: #8a701f;
+
+  /* Dark surfaces (warm, não slate frio) */
+  --jp-ink: #0f0f0e;        /* deepest, page bg */
+  --jp-surface-1: #1a1a18;  /* primary surfaces */
+  --jp-surface-2: #2d2d2a;  /* elevated surfaces (sidebars, cards) */
+  --jp-surface-3: #3a3a36;  /* hover/active */
+  --jp-divider: #3d3d3a;    /* strong borders */
+  --jp-divider-soft: #2a2a27;
+
+  /* Warm neutrals (texto + bordas claras) */
+  --jp-fg: #f4f2ec;         /* texto principal */
+  --jp-fg-muted: #c5c2bc;   /* texto secundário */
+  --jp-fg-dim: #8a8a86;     /* texto auxiliar */
+  --jp-border-light: #4a4a45;
+
+  /* Status (dessaturado, harmoniza com warm gray) */
+  --jp-success: #7fa66a;
+  --jp-danger: #c46a5b;
+  --jp-warning: #d4a04f;
+  --jp-info: #6a8aa6;
+
+  /* Legacy compat (componentes ainda não migrados) */
+  --background: var(--jp-ink);
+  --foreground: var(--jp-fg);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* JP color tokens disponíveis como classes Tailwind: bg-jp-gold, text-jp-gold, border-jp-divider, etc. */
+  --color-jp-gold: var(--jp-gold);
+  --color-jp-gold-soft: var(--jp-gold-soft);
+  --color-jp-gold-deep: var(--jp-gold-deep);
+
+  --color-jp-ink: var(--jp-ink);
+  --color-jp-surface-1: var(--jp-surface-1);
+  --color-jp-surface-2: var(--jp-surface-2);
+  --color-jp-surface-3: var(--jp-surface-3);
+  --color-jp-divider: var(--jp-divider);
+  --color-jp-divider-soft: var(--jp-divider-soft);
+
+  --color-jp-fg: var(--jp-fg);
+  --color-jp-fg-muted: var(--jp-fg-muted);
+  --color-jp-fg-dim: var(--jp-fg-dim);
+  --color-jp-border-light: var(--jp-border-light);
+
+  --color-jp-success: var(--jp-success);
+  --color-jp-danger: var(--jp-danger);
+  --color-jp-warning: var(--jp-warning);
+  --color-jp-info: var(--jp-info);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
   --animate-tour-ring: tour-ring-pulse 1.5s ease-in-out infinite;
   --animate-slide-up: slide-up 300ms ease-out forwards;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--jp-ink);
+  color: var(--jp-fg);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-feature-settings: "ss01", "cv11";
 }
 
+/* ============================================================================
+   Animations
+   ============================================================================ */
 @keyframes tour-ring-pulse {
   0%,
   100% {
     box-shadow:
-      0 0 0 3px rgba(249, 115, 22, 0.6),
-      0 0 20px 4px rgba(249, 115, 22, 0.2);
+      0 0 0 3px rgba(184, 151, 42, 0.6),
+      0 0 20px 4px rgba(184, 151, 42, 0.2);
   }
   50% {
     box-shadow:
-      0 0 0 5px rgba(249, 115, 22, 0.4),
-      0 0 30px 8px rgba(249, 115, 22, 0.3);
+      0 0 0 5px rgba(184, 151, 42, 0.4),
+      0 0 30px 8px rgba(184, 151, 42, 0.3);
   }
 }
 
@@ -78,17 +129,40 @@ body {
   }
 }
 
+@keyframes tourPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 12px rgba(184, 151, 42, 0.4);
+    border-color: rgba(184, 151, 42, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(184, 151, 42, 0.6);
+    border-color: rgba(184, 151, 42, 1);
+  }
+}
+
+/* ============================================================================
+   Utilities
+   ============================================================================ */
 @layer utilities {
-  /* PixiJS Canvas Scaling — anchored to top-left to prevent drift from
-     flex centering recalculations during frequent WebSocket re-renders */
+  /* react-zoom-pan-pinch defaults size to content; force fill parent so
+     the canvas area matches the JP-surface card. */
+  .react-transform-wrapper,
+  .react-transform-component {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* PixiJS Canvas Scaling — contain inside the wrapper, centered, so
+     the office aspect (5:4) is preserved with subtle letterboxing. */
   .pixi-canvas-container canvas {
     width: 100% !important;
     height: 100% !important;
     object-fit: contain;
-    object-position: top left;
+    object-position: center;
   }
 
-  /* Custom Scrollbar Theme */
+  /* Scrollbar Jurídico Pro */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -99,57 +173,20 @@ body {
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #1e293b; /* slate-800 */
+    background: var(--jp-surface-3);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #f97316; /* orange-500 */
+    background: var(--jp-gold);
     border: 2px solid transparent;
     background-clip: padding-box;
   }
 
-  /* Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #1e293b transparent;
-  }
-}
-
-/* Tour pulse animation */
-@keyframes tourPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
-    border-color: rgba(249, 115, 22, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 24px rgba(249, 115, 22, 0.6);
-    border-color: rgba(249, 115, 22, 1);
-  }
-}
-
-/* View transition animations */
-@keyframes zoomInView {
-  from {
-    transform: scale(0.3);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes zoomOutView {
-  from {
-    transform: scale(1.5);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
+    scrollbar-color: var(--jp-surface-3) transparent;
   }
 }

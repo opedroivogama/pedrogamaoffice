@@ -140,17 +140,17 @@ async def extract_and_set_boss_speech(
     if not response:
         return None
 
-    summary_service = get_summary_service()
-    summary = await summary_service.summarize_response(response)
-
-    if summary:
-        sm.boss_bubble = BubbleContent(
-            type=BubbleType.SPEECH,
-            text=summary,
-            icon="💬",
-            persistent=True,
-        )
-        logger.debug(f"Set boss speech: {summary[:50]}...")
+    # Envia a resposta crua (cap 600 chars) pro frontend dividir em chunks
+    # e alternar rapidamente — Pedro e Claude estão na mesma sala, sem
+    # ícone de balão. O frontend cicla por sentenças via `useChunkedBubble`
+    # na BossSprite, e o último chunk fica congelado (persistent=True).
+    bubble_text = response[:600] if len(response) > 600 else response
+    sm.boss_bubble = BubbleContent(
+        type=BubbleType.SPEECH,
+        text=bubble_text,
+        persistent=True,
+    )
+    logger.debug(f"Set boss speech (raw, will chunk client-side): {bubble_text[:80]}...")
 
     return response
 

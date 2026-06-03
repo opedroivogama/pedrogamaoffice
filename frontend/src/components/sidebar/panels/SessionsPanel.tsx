@@ -3,6 +3,8 @@
 import {
   ChevronDown,
   ChevronRight,
+  LayoutGrid,
+  Monitor,
   Play,
   PlayCircle,
   Radio,
@@ -11,58 +13,22 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import SessionsBrowserModal from "@/components/overlay/SessionsBrowserModal";
 import type { Session } from "@/hooks/useSessions";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useSessionsBrowserStore } from "@/stores/sessionsBrowserStore";
+import { usePinnedFoldersStore } from "@/stores/pinnedFoldersStore";
+import {
+  getProjectKey,
+  groupSessionsByProject,
+  isResumableSession,
+} from "@/utils/sessionGrouping";
+import { buildFolderChips, filterSessionsByChip } from "@/utils/folderChips";
 import { useSessionsPanelContext } from "./SessionsPanelContext";
 
-// ============================================================================
-// HELPERS (duplicated from old SessionSidebar — keep behavior identical)
-// ============================================================================
-
-function getProjectKey(session: Session): string {
-  if (session.projectName) return session.projectName;
-  if (session.projectRoot)
-    return session.projectRoot.split("/").pop() ?? "unknown";
-  return "unknown";
-}
-
-// Sessões do Claude Code têm session_id em formato UUID. Sessões sintéticas
-// criadas por bridges externos (ex: jurischat_bridge → "comercial-recepcao-ia")
-// usam kebab-case e NÃO têm transcript pra `claude --resume`. Pra essas o Play
-// fica visualmente desabilitado.
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isResumableSession(sessionId: string): boolean {
-  return UUID_RE.test(sessionId);
-}
-
-function groupSessionsByProject(sessions: Session[]): Map<string, Session[]> {
-  const groups = new Map<string, Session[]>();
-  for (const s of sessions) {
-    const key = getProjectKey(s);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(s);
-  }
-  for (const list of groups.values()) {
-    list.sort((a, b) => {
-      if (a.status === "active" && b.status !== "active") return -1;
-      if (b.status === "active" && a.status !== "active") return 1;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-    });
-  }
-  const sorted = [...groups.entries()].sort(([, a], [, b]) => {
-    const aActive = a.some((s) => s.status === "active");
-    const bActive = b.some((s) => s.status === "active");
-    if (aActive && !bActive) return -1;
-    if (bActive && !aActive) return 1;
-    const aNewest = Math.max(...a.map((s) => new Date(s.updatedAt).getTime()));
-    const bNewest = Math.max(...b.map((s) => new Date(s.updatedAt).getTime()));
-    return bNewest - aNewest;
-  });
-  return new Map(sorted);
-}
+const CHIP_STORAGE_KEY = "session.folderFilter.v1";
 
 // ============================================================================
 // EDITABLE NAME
@@ -157,6 +123,76 @@ export function SessionsPanel(): React.ReactNode {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const lastAutoExpandedSessionRef = useRef<string | null>(null);
+
+  // Folder filter state — chip ID is persisted to survive reloads.
+  const pinnedFolders = usePinnedFoldersStore((s) => s.folders);
+  const isPinnedLoaded = usePinnedFoldersStore((s) => s.isLoaded);
+  const loadPinned = usePinnedFoldersStore((s) => s.load);
+  const [activeChipId, setActiveChipIdState] = useState<string>("all");
+
+  // Hydrate active chip from localStorage on mount.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(CHIP_STORAGE_KEY);
+      if (saved) setActiveChipIdState(saved);
+    } catch {
+      // localStorage may be disabled.
+    }
+  }, []);
+
+  // Make sure the pinned-folders store is loaded once so we have its data
+  // for chip derivation (the panel itself may be hidden when SessionsPanel
+  // first mounts).
+  useEffect(() => {
+    if (!isPinnedLoaded) void loadPinned();
+  }, [isPinnedLoaded, loadPinned]);
+
+  const setActiveChipId = useCallback((id: string) => {
+    setActiveChipIdState(id);
+    try {
+      window.localStorage.setItem(CHIP_STORAGE_KEY, id);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const chips = useMemo(
+    () => buildFolderChips({ sessions, pinnedFolders }),
+    [sessions, pinnedFolders],
+  );
+
+  // Resolve the active chip; if the saved ID no longer exists (folder was
+  // unpinned), fall back to "all" without clobbering the saved selection
+  // — so re-pinning the folder restores the previous filter.
+  const activeChip = useMemo(
+    () => chips.find((c) => c.id === activeChipId) ?? chips[0] ?? null,
+    [chips, activeChipId],
+  );
+
+  const filteredSessions = useMemo(
+    () => filterSessionsByChip(sessions, activeChip, pinnedFolders),
+    [sessions, activeChip, pinnedFolders],
+  );
+
+  // Auto-expande o grupo da sessão ativa só uma vez por sessionId,
+  // permitindo que o usuário recolha manualmente depois.
+  useEffect(() => {
+    if (!sessionId) return;
+    if (lastAutoExpandedSessionRef.current === sessionId) return;
+    const active = sessions.find((s) => s.id === sessionId);
+    if (!active) return;
+    lastAutoExpandedSessionRef.current = sessionId;
+    const key = getProjectKey(active);
+    setExpandedGroups((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, [sessionId, sessions]);
+
+  const openBrowser = useSessionsBrowserStore((s) => s.openModal);
 
   const handleRefreshNames = useCallback(async () => {
     if (isRefreshing) return;
@@ -197,6 +233,18 @@ export function SessionsPanel(): React.ReactNode {
     [t],
   );
 
+  const handleFocusTerminal = useCallback(async (id: string) => {
+    try {
+      await fetch(`http://localhost:8000/api/v1/sessions/${id}/focus`, {
+        method: "POST",
+      });
+    } catch {
+      // Silent — focus failure isn't worth interrupting the user. The
+      // worst case is the terminal window doesn't surface and they can
+      // alt-tab manually.
+    }
+  }, []);
+
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -206,26 +254,83 @@ export function SessionsPanel(): React.ReactNode {
     });
   }, []);
 
-  const groups = groupSessionsByProject(sessions);
+  const groups = groupSessionsByProject(filteredSessions);
 
   return (
     <div className="flex flex-col min-h-0 flex-grow">
       <div className="px-3 py-1.5 text-[10px] text-jp-fg-dim font-mono border-b border-jp-divider-soft flex-shrink-0 flex items-center justify-between gap-2">
-        <span>{sessions.length} sessões</span>
-        <button
-          type="button"
-          onClick={handleRefreshNames}
-          disabled={isRefreshing}
-          className="p-1 text-jp-fg-dim hover:text-purple-300 hover:bg-jp-surface-2 rounded transition-colors disabled:opacity-50 disabled:cursor-wait"
-          title={t("sessions.refreshNames")}
-          aria-label={t("sessions.refreshNames")}
-        >
-          <RefreshCw
-            size={11}
-            className={isRefreshing ? "animate-spin" : ""}
-          />
-        </button>
+        <span>
+          {filteredSessions.length === sessions.length
+            ? `${sessions.length} sessões`
+            : `${filteredSessions.length} de ${sessions.length} sessões`}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={openBrowser}
+            className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors"
+            title={t("sessions.browserOpen")}
+            aria-label={t("sessions.browserOpen")}
+          >
+            <LayoutGrid size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRefreshNames}
+            disabled={isRefreshing}
+            className="p-1 text-jp-fg-dim hover:text-purple-300 hover:bg-jp-surface-2 rounded transition-colors disabled:opacity-50 disabled:cursor-wait"
+            title={t("sessions.refreshNames")}
+            aria-label={t("sessions.refreshNames")}
+          >
+            <RefreshCw
+              size={11}
+              className={isRefreshing ? "animate-spin" : ""}
+            />
+          </button>
+        </div>
       </div>
+
+      {/* Folder filter chip bar — only render when there's something to
+          filter by (a chip beyond "Todas"). */}
+      {chips.length > 1 && (
+        <div className="px-2 py-1.5 border-b border-jp-divider-soft flex-shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-1 whitespace-nowrap">
+            {chips.map((chip) => {
+              const isActive = chip.id === activeChip?.id;
+              const isChild = chip.kind === "auto-child";
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setActiveChipId(chip.id)}
+                  className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold transition-colors ${
+                    isActive
+                      ? "border-jp-gold bg-jp-gold text-black"
+                      : "border-jp-divider-soft bg-jp-surface-2/40 text-jp-fg-dim hover:text-jp-fg hover:border-jp-gold/50"
+                  } ${isChild ? "italic font-medium" : ""}`}
+                  title={
+                    chip.kind === "auto-child" && chip.parentLabel
+                      ? `Subpasta de ${chip.parentLabel}`
+                      : chip.kind === "orphan"
+                        ? "Sessões fora de qualquer pasta fixada"
+                        : undefined
+                  }
+                >
+                  <span>{chip.label}</span>
+                  <span
+                    className={`text-[9px] ${
+                      isActive ? "text-black/70" : "text-jp-fg-dim/70"
+                    }`}
+                  >
+                    {chip.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="overflow-y-auto flex-grow p-2">
         {sessionsLoading && sessions.length === 0 ? (
           <div className="p-4 text-center text-jp-fg-dim text-xs italic">
@@ -235,17 +340,24 @@ export function SessionsPanel(): React.ReactNode {
           <div className="p-4 text-center text-jp-fg-dim text-xs italic">
             {t("sessions.noSessions")}
           </div>
+        ) : filteredSessions.length === 0 ? (
+          <div className="p-4 text-center text-jp-fg-dim text-xs italic">
+            Nenhuma sessão em {activeChip?.label ?? "este filtro"}.{" "}
+            <button
+              type="button"
+              onClick={() => setActiveChipId("all")}
+              className="text-jp-gold hover:underline"
+            >
+              Limpar filtro
+            </button>
+          </div>
         ) : (
           <div className="flex flex-col gap-1">
             {[...groups.entries()].map(([projectKey, groupSessions]) => {
               const hasActive = groupSessions.some(
                 (s) => s.status === "active",
               );
-              const isActiveSelected = groupSessions.some(
-                (s) => s.id === sessionId,
-              );
-              const isExpanded =
-                expandedGroups.has(projectKey) || isActiveSelected;
+              const isExpanded = expandedGroups.has(projectKey);
               const primary = groupSessions[0];
               const rest = groupSessions.slice(1);
 
@@ -294,6 +406,20 @@ export function SessionsPanel(): React.ReactNode {
                             : "text-jp-fg"
                         }`}
                       />
+                      {primary.status === "active" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleFocusTerminal(primary.id);
+                          }}
+                          className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
+                          title={t("sessions.focusTerminal")}
+                          aria-label={`${t("sessions.focusTerminal")} ${primary.id}`}
+                        >
+                          <Monitor size={12} />
+                        </button>
+                      )}
                       {(() => {
                         const resumable = isResumableSession(primary.id);
                         return (
@@ -361,8 +487,7 @@ export function SessionsPanel(): React.ReactNode {
                         ) : (
                           <ChevronRight size={10} />
                         )}
-                        {rest.length} older session
-                        {rest.length !== 1 ? "s" : ""}
+                        {t("sessions.olderSession", { count: rest.length })}
                       </button>
 
                       {isExpanded &&
@@ -401,6 +526,20 @@ export function SessionsPanel(): React.ReactNode {
                                   },
                                 )}
                               </span>
+                              {session.status === "active" && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleFocusTerminal(session.id);
+                                  }}
+                                  className="p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+                                  title={t("sessions.focusTerminal")}
+                                  aria-label={`${t("sessions.focusTerminal")} ${session.id}`}
+                                >
+                                  <Monitor size={10} />
+                                </button>
+                              )}
                               {(() => {
                                 const resumable = isResumableSession(
                                   session.id,
@@ -452,6 +591,7 @@ export function SessionsPanel(): React.ReactNode {
           </div>
         )}
       </div>
+      <SessionsBrowserModal />
     </div>
   );
 }

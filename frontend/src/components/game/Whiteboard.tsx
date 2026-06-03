@@ -24,6 +24,7 @@ import { Graphics } from "pixi.js";
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import type { TodoItem, WhiteboardMode, Agent } from "@/types";
 import { useGameStore } from "@/stores/gameStore";
+import { shouldIgnoreShortcut } from "@/utils/shortcutGate";
 import { TodoListMode } from "./whiteboard/TodoListMode";
 import { RemoteWorkersMode } from "./whiteboard/RemoteWorkersMode";
 import { ToolPizzaMode } from "./whiteboard/ToolPizzaMode";
@@ -149,13 +150,8 @@ export function Whiteboard({ todos }: WhiteboardProps): ReactNode {
   // Keyboard hotkeys: T = Todo List (0), B = Background Tasks (1), 0-9 = modes
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in an input field
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
+      // Bail when typing OR when a character is under manual control.
+      if (shouldIgnoreShortcut(e)) return;
 
       const key = e.key.toLowerCase();
 

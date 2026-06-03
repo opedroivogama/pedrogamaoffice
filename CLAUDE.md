@@ -26,6 +26,7 @@ See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for t
 - **Database**: `DATABASE_URL` must support both SQLite (default for local solo use) and Postgres via asyncpg (Supabase for the future multi-user deployment). Don't write SQLite-only SQL.
 - **Hooks stay lightweight**: hooks only forward payload data — no file reads, no JSONL parsing. Heavy work belongs in the backend. This invariant carries over from upstream and must be preserved.
 - **No premature scale features**: don't add rate limiting, queues, multi-tenancy plumbing, or auth scaffolding until there are real >1 users. Solve for today + don't paint into corners.
+- **Language**: Pedro fala português. Toda comunicação visível pra ele (respostas no terminal/painel, prompts pra subagentes via Task(), comentários no código que ele vai ler em rev) deve ser em **português brasileiro**. Mantenha inglês apenas em identificadores técnicos (nomes de função, variáveis, types) e em texto que vai pra ferramentas externas que esperam inglês (commit messages podem ser PT também, sem problema). Quando delegar pra subagente (Task / Explore / Plan / general-purpose), redija o `prompt` da Task em português — o subagente é instruído via prompt run-time.
 
 ## Commands
 
@@ -69,8 +70,9 @@ make opencode-build        # Build without registering
 ## Project Skills
 
 - **/office-sprite** - Generate office furniture sprites
-- **/character-sprite** - Generate character sprite sheets
+- **/character-sprite** - Generate character sprite sheets (Nano Banana — upstream)
 - **/desk-accessory** - Generate tintable desk items
+- **/pixellab-character** - Generate full chibi character via PixelLab MCP: 8 rotations + 8-direction walks (v3) + breathing-idle, auto-deployed to `public/sprites/characters/<NAME>/` with backup + manifest
 
 See `.claude/skills/*/SKILL.md` for details.
 

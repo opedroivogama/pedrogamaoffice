@@ -1,8 +1,8 @@
 /**
  * ZoomControls Component
  *
- * Provides zoom in/out and reset controls for the game canvas.
- * Uses react-zoom-pan-pinch hooks for control.
+ * Provides zoom in / zoom out for the game canvas.
+ * The canvas itself is locked (no panning); only scale changes.
  */
 
 import { type ReactNode } from "react";
@@ -10,31 +10,29 @@ import { useControls } from "react-zoom-pan-pinch";
 import { useTranslation } from "@/hooks/useTranslation";
 
 export function ZoomControls(): ReactNode {
-  const { zoomIn, zoomOut, resetTransform } = useControls();
+  const { zoomIn, zoomOut } = useControls();
   const { t } = useTranslation();
 
+  const buttonClass =
+    "w-9 h-9 bg-jp-surface-2/90 hover:bg-jp-surface-3 text-jp-fg rounded-md flex items-center justify-center text-lg font-semibold border border-jp-divider shadow-lg active:scale-95 transition-transform";
+
   return (
-    <div className="absolute bottom-14 right-4 flex flex-row gap-1 z-10">
+    <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
       <button
         onClick={() => zoomIn()}
-        className="w-10 h-10 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg flex items-center justify-center text-xl font-bold border border-slate-600 shadow-lg active:scale-95 transition-transform"
+        className={buttonClass}
         aria-label={t("zoom.in")}
+        title={t("zoom.in")}
       >
         +
       </button>
       <button
         onClick={() => zoomOut()}
-        className="w-10 h-10 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg flex items-center justify-center text-xl font-bold border border-slate-600 shadow-lg active:scale-95 transition-transform"
+        className={buttonClass}
         aria-label={t("zoom.out")}
+        title={t("zoom.out")}
       >
         −
-      </button>
-      <button
-        onClick={() => resetTransform()}
-        className="w-10 h-10 bg-slate-800/90 hover:bg-slate-700 text-white rounded-lg flex items-center justify-center text-xs font-bold border border-slate-600 shadow-lg active:scale-95 transition-transform"
-        aria-label={t("zoom.reset")}
-      >
-        1:1
       </button>
     </div>
   );

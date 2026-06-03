@@ -9,6 +9,34 @@ import { isLocale, type Locale } from "@/i18n";
 
 export type ClockType = "analog" | "digital";
 export type ClockFormat = "12h" | "24h";
+/** Claude model IDs the user can pick from the header badge dropdown.
+ *  Stored verbatim so the same string can be forwarded to any Anthropic
+ *  SDK / CLI integration without remapping. */
+export type ClaudeModelId =
+  | "claude-opus-4-7"
+  | "claude-sonnet-4-6"
+  | "claude-haiku-4-5-20251001";
+
+export interface ClaudeModelOption {
+  id: ClaudeModelId;
+  label: string;
+  shortLabel: string;
+}
+
+export const CLAUDE_MODEL_OPTIONS: readonly ClaudeModelOption[] = [
+  { id: "claude-opus-4-7", label: "Opus 4.7", shortLabel: "Opus 4.7" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", shortLabel: "Sonnet 4.6" },
+  {
+    id: "claude-haiku-4-5-20251001",
+    label: "Haiku 4.5",
+    shortLabel: "Haiku 4.5",
+  },
+] as const;
+
+const VALID_MODEL_IDS = new Set<string>(CLAUDE_MODEL_OPTIONS.map((m) => m.id));
+function isClaudeModelId(value: string): value is ClaudeModelId {
+  return VALID_MODEL_IDS.has(value);
+}
 
 interface PreferencesState {
   clockType: ClockType;
@@ -27,8 +55,12 @@ interface PreferencesState {
   toastAutoDismissLow: number;
   toastAutoDismissInfo: number;
 
+  /** Selected Claude model shown in the header badge. */
+  claudeModel: ClaudeModelId;
+
   // Actions
   loadPreferences: () => Promise<void>;
+  setClaudeModel: (model: ClaudeModelId) => Promise<void>;
   setClockType: (type: ClockType) => Promise<void>;
   setClockFormat: (format: ClockFormat) => Promise<void>;
   setAutoFollowNewSessions: (enabled: boolean) => Promise<void>;
@@ -55,13 +87,14 @@ const DEFAULT_CLOCK_FORMAT: ClockFormat = "12h";
 const DEFAULT_AUTO_FOLLOW_NEW_SESSIONS = true;
 const DEFAULT_LANGUAGE: Locale = "en";
 const DEFAULT_COMMAND_BAR_ENABLED = true;
-const DEFAULT_CLICK_TO_FOCUS_ENABLED = false;
+const DEFAULT_CLICK_TO_FOCUS_ENABLED = true;
 const DEFAULT_TOAST_FILTER_PERMISSION = true;
 const DEFAULT_TOAST_FILTER_ERROR = false;
 const DEFAULT_TOAST_FILTER_TASK_COMPLETE = true;
 const DEFAULT_TOAST_FILTER_ARRIVAL = false;
 const DEFAULT_TOAST_AUTO_DISMISS_LOW = 5000;
 const DEFAULT_TOAST_AUTO_DISMISS_INFO = 3000;
+const DEFAULT_CLAUDE_MODEL: ClaudeModelId = "claude-opus-4-7";
 
 // ============================================================================
 // API HELPERS
@@ -108,6 +141,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   toastFilterArrival: DEFAULT_TOAST_FILTER_ARRIVAL,
   toastAutoDismissLow: DEFAULT_TOAST_AUTO_DISMISS_LOW,
   toastAutoDismissInfo: DEFAULT_TOAST_AUTO_DISMISS_INFO,
+  claudeModel: DEFAULT_CLAUDE_MODEL,
   isLoaded: false,
 
   loadPreferences: async () => {
@@ -145,8 +179,17 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       toastAutoDismissInfo: prefs.toastAutoDismissInfo
         ? Number(prefs.toastAutoDismissInfo)
         : DEFAULT_TOAST_AUTO_DISMISS_INFO,
+      claudeModel:
+        prefs.claudeModel && isClaudeModelId(prefs.claudeModel)
+          ? prefs.claudeModel
+          : DEFAULT_CLAUDE_MODEL,
       isLoaded: true,
     });
+  },
+
+  setClaudeModel: async (model) => {
+    set({ claudeModel: model });
+    await setPreference("claudeModel", model);
   },
 
   setClockType: async (clockType) => {

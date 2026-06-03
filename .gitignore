@@ -113,7 +113,7 @@ graphify-out/
 # --- Local backups / scratch artifacts ---
 escritorio-online-BACKUP-*.zip
 sprites-backup-*/
-SPRITES/
+/SPRITES/
 video-frames/
 *.mp4
 .playwright-mcp/
@@ -124,3 +124,10 @@ backend/_sync_prefs_to_supabase.py
 /*.png
 scripts/*.png
 frontend/public/test_gen.png
+
+# --- Sprite-generation scratch (frames de vídeo brutos, não vão pro repo) ---
+scripts/_video_frames/
+
+# --- Bridge runtime state (muda toda hora, contém dados de leads) ---
+scripts/bridges/*state*.json
+scripts/bridges/.*state*.json

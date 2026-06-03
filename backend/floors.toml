@@ -24,5 +24,18 @@ icon = "🤝"
 # Comecei só com a sala que tem bridge funcionando. Quando construir bridge
 # pra Laura/Vanessa/Gabriela/Pedro (CRM, agenda, etc.), adicionar aqui.
 repos = [
-  "comercial-recepcao-ia",   # IA Vanessa Recepção (JurisChat bridge)
+  "comercial-recepcao-ia",        # IA Vanessa Recepção (JurisChat bridge — visão "time atendendo")
+  "comercial-gabriel-projetos",   # Gabriel Carvalho — Head de Projetos/Performance (pós-venda)
+]
+
+[[floors]]
+name = "Clientes"
+floor_number = 6  # acima do Comercial (#5) — clientes no topo da pirâmide
+accent = "#E4C76B"  # JP Gold Light — clientes / leads ativos
+icon = "👥"
+# Mesma fonte do JurisChat, mas visão invertida: cada conversa ativa vira um
+# subagente nomeado pelo lead/cliente. Mostra QUEM está conversando agora,
+# em vez de QUEM da empresa está atendendo.
+repos = [
+  "clientes-ativos",   # JurisChat bridge — visão "clientes em atividade"
 ]

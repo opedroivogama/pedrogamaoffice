@@ -56,6 +56,10 @@ class EventData(BaseModel):
     agent_name: str | None = None
     agent_type: str | None = None
     task_description: str | None = None
+    # External bridges (JurisChat, Meta Ads, etc.) já enviam agent_name humano —
+    # quando True, o backend não renomeia via SummaryService (que inventaria um
+    # apelido tipo "Logic Larry" via Haiku ou fallback aleatório).
+    preserve_agent_name: bool = False
     result_summary: str | None = None
     notification_type: str | None = None
     message: str | None = None

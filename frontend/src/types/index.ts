@@ -106,8 +106,14 @@ export interface EventDetail {
  * WebSocket message types sent from the backend over the /ws endpoint.
  */
 export interface WebSocketMessage {
-  type: "state_update" | "event" | "reload" | "git_status" | "session_deleted";
-  timestamp: string;
+  type:
+    | "state_update"
+    | "event"
+    | "reload"
+    | "git_status"
+    | "session_deleted"
+    | "boss_walk_to";
+  timestamp?: string;
   state?: import("./generated").GameState;
   event?: {
     id: string;
@@ -119,6 +125,9 @@ export interface WebSocketMessage {
   };
   gitStatus?: import("./generated").GitStatus;
   session_id?: string;
+  // boss_walk_to payload — flat coords broadcast by /api/v1/boss/walk
+  x?: number;
+  y?: number;
 }
 
 // ============================================================================

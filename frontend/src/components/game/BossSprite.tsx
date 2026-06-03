@@ -9,13 +9,18 @@
 
 import { memo, useMemo, useState, useCallback, type ReactNode } from "react";
 import { useTick } from "@pixi/react";
-import { Graphics, TextStyle, Texture } from "pixi.js";
+import { Graphics, TextStyle, Texture, Rectangle } from "pixi.js";
 import type { BossState, BubbleContent, Position } from "@/types";
 import { MarqueeText } from "./MarqueeText";
 import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
+import { drawChibi } from "./shared/drawChibi";
 import { truncateBubbleText } from "@/utils/bubbleText";
+import { useAttentionStore } from "@/stores/attentionStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useGameStore } from "@/stores/gameStore";
+import { Plumbob } from "./Plumbob";
 
 // ============================================================================
 // TYPES
@@ -34,8 +39,17 @@ export interface BossSpriteProps {
   phoneTexture: Texture | null;
   headsetTexture: Texture | null;
   sunglassesTexture: Texture | null;
+  characterTexture?: Texture | null;
+  characterTypingTexture?: Texture | null;
+  characterTypingEyeLeftTexture?: Texture | null;
+  characterIdleFrames?: (Texture | null)[] | null; // optional breathing-idle frames cycled when sprite is rendered (overrides characterTexture).
+  bodyTint?: number; // optional PIXI tint applied to the body sprite (e.g., 0xB8972A for gold)
+  characterRenderSize?: number; // visual size in px (default 128). Bump for sources with empty canvas padding (e.g. PixelLab 228 sprites).
   renderBubble?: boolean; // Whether to render bubble (default true)
   isTyping?: boolean; // Whether boss is typing (animates arms)
+  /** True when Claudius is actively producing a response and thus blocked
+   *  for new messages. Drives the ⚔️🔨🛡️ work indicator over his head. */
+  isWorking?: boolean;
   isAway?: boolean; // Whether boss is away from desk (hides body, shows only furniture)
 }
 
@@ -46,6 +60,11 @@ export interface BossSpriteProps {
 const BOSS_WIDTH = 48; // 1.5 blocks × 32px
 const BOSS_HEIGHT = 80; // 2.5 blocks × 32px
 const STROKE_WIDTH = 4;
+
+/** Distância vertical (px) entre o centro da badge "Claudius" e o centro
+ *  do WorkIndicator (⚔️🔨🛡️) que fica acima dela. Constante exportada
+ *  pra OfficeGame poder usar o mesmo gap no WanderingBoss. */
+export const CLAUDIUS_WORK_INDICATOR_GAP = 50;
 
 // State colors for the boss (kept for reference, not currently used)
 const _STATE_COLORS: Record<BossState, number> = {
@@ -66,20 +85,16 @@ const _STATE_COLORS: Record<BossState, number> = {
 
 function drawBossBody(g: Graphics, _state: BossState): void {
   g.clear();
-  // Boss body (black capsule - state color changes were distracting)
-  // Inset by half stroke width so total size matches BOSS_WIDTH × BOSS_HEIGHT
-  const innerWidth = BOSS_WIDTH - STROKE_WIDTH;
-  const innerHeight = BOSS_HEIGHT - STROKE_WIDTH;
-  const bossRadius = innerWidth / 2;
-  g.roundRect(
-    -innerWidth / 2,
-    -innerHeight / 2,
-    innerWidth,
-    innerHeight,
-    bossRadius,
-  );
-  g.fill(0x1f2937); // Always dark gray
-  g.stroke({ width: STROKE_WIDTH, color: 0xffffff });
+
+  // Chibi/Pokemon-GBA style. Boss anchor is centered (y=0 is body center),
+  // so feet sit at +38. Distinct hair tone (Claude-orange) to set the boss
+  // apart from regular agents.
+  drawChibi(g, {
+    shirtColor: 0x1f2937,
+    hairColor: 0xc97a3f,
+    feetY: 38,
+    variant: "boss",
+  });
 }
 
 function drawFallbackChair(g: Graphics): void {
@@ -115,29 +130,31 @@ function Bubble({ content, yOffset }: BubbleProps): ReactNode {
   // Icon badge constants
   const badgeRadius = 16; // Radius of the circular badge
 
-  // Calculate bubble dimensions (at display scale) - icon is outside bubble now
-  const charWidth = 7.5;
-  const paddingH = 30;
-  const maxW = 220;
+  // Calculate bubble dimensions — Montserrat 700, dimensões reduzidas ~20%
+  // a pedido do Pedro (a versão anterior ficou rústica/grande demais).
+  const charWidth = 8;
+  const paddingH = 32;
+  const maxW = 256;
   const rawWidth = text.length * charWidth + paddingH;
-  const bWidth = Math.min(maxW, Math.max(80, rawWidth));
+  const bWidth = Math.min(maxW, Math.max(88, rawWidth));
   const capacity = (bWidth - paddingH) / charWidth;
   const lines = Math.max(1, Math.ceil(text.length / capacity));
-  const bHeight = 35 + lines * 14;
+  const bHeight = 35 + lines * 16;
 
-  // Text style at 2x for sharp rendering
+  // Text style at 2x for sharp rendering.
   const textStyle = useMemo<Partial<TextStyle>>(
     () => ({
       fontFamily:
-        '"Courier New", Courier, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace',
-      fontSize: 20,
-      fill: "#000000",
-      fontWeight: "bold",
+        '"Montserrat", "Segoe UI", system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
+      fontSize: 27,
+      fill: "#0e0e0e",
+      fontWeight: "700",
+      letterSpacing: 0.3,
       wordWrap: true,
       wordWrapWidth: (bWidth - 30) * 2,
       breakWords: true,
       align: "left",
-      lineHeight: 28,
+      lineHeight: 32,
       stroke: { width: 0, color: 0x000000 },
     }),
     [bWidth],
@@ -185,6 +202,53 @@ function Bubble({ content, yOffset }: BubbleProps): ReactNode {
 }
 
 // ============================================================================
+// WORK INDICATOR — emoji pill acima do Claudius quando ele está produzindo
+// ============================================================================
+
+/**
+ * Indicador visual de "Claudius está trabalhando E bloqueado pra mensagens".
+ * Pill preta com borda dourada igual à badge "Claudius", contendo:
+ *   ⚔️  🔨  🛡️
+ * Espada+escudo sinalizam que ele tá em batalha (não dá pra interromper);
+ * o martelo no meio é o ícone de trabalho.
+ *
+ * Tem um pulso suave de alpha pra puxar o olhar sem ficar piscando agressivo.
+ */
+export function WorkIndicator(): ReactNode {
+  const [pulse, setPulse] = useState(0);
+  useTick((ticker) => {
+    setPulse((p) => p + ticker.deltaTime * 0.06);
+  });
+  const alpha = 0.85 + Math.sin(pulse) * 0.15; // 0.7 .. 1.0
+
+  const pillW = 180;
+  const pillH = 56;
+
+  const drawPill = (g: Graphics) => {
+    g.clear();
+    g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 18);
+    g.fill({ color: 0x0e0e0e, alpha: 0.92 });
+    g.stroke({ color: 0xb8972a, width: 3 });
+  };
+
+  const emojiStyle: Partial<TextStyle> = {
+    fontFamily:
+      '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
+    fontSize: 38,
+    fill: 0xffffff,
+  };
+
+  return (
+    <pixiContainer alpha={alpha}>
+      <pixiGraphics draw={drawPill} />
+      <pixiText text="⚔️" anchor={0.5} x={-50} y={1} style={emojiStyle} resolution={2} />
+      <pixiText text="🔨" anchor={0.5} x={0} y={1} style={emojiStyle} resolution={2} />
+      <pixiText text="🛡️" anchor={0.5} x={50} y={1} style={emojiStyle} resolution={2} />
+    </pixiContainer>
+  );
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -201,20 +265,29 @@ function BossSpriteComponent({
   phoneTexture: _phoneTexture,
   headsetTexture,
   sunglassesTexture,
+  characterTexture,
+  characterTypingTexture,
+  characterTypingEyeLeftTexture,
+  characterIdleFrames,
+  bodyTint,
+  characterRenderSize = 128,
   renderBubble = true,
   isTyping = false,
+  isWorking = false,
   isAway = false,
 }: BossSpriteProps): ReactNode {
+  const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
+  const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
+  const isControlled = useGameStore((s) => s.controlledEntityId === "boss");
+
   // Animation state for typing
   const [typingTime, setTypingTime] = useState(0);
 
-  // Animate typing - oscillate hands up/down
+  // Always-on animation accumulator. Drives idle "breathing" oscillation
+  // (visible both when sitting and standing) and the legacy chibi-fallback
+  // arm wave (gated separately by isTyping inside the arm draw callbacks).
   useTick((ticker) => {
-    if (isTyping) {
-      setTypingTime((t) => t + ticker.deltaTime * 0.15);
-    } else if (typingTime !== 0) {
-      setTypingTime(0);
-    }
+    setTypingTime((t) => t + ticker.deltaTime * 0.05);
   });
 
   // Calculate arm animation offsets (subtle, out of phase for natural look)
@@ -222,6 +295,37 @@ function BossSpriteComponent({
   const leftArmOffset = isTyping
     ? Math.sin(typingTime * 8 + Math.PI * 0.7) * 2
     : 0;
+
+  // Shirt-slides-over-pants model: full body translates ±2 px; pants are a
+  // separate STATIC overlay rendered on top. The seam is invisible because
+  // both sprites have identical content in the overlap region (uniform pants
+  // color near the waist) and the static overlay always wins z-order.
+  const splitHalves = useMemo(() => {
+    const cut = (t: Texture | null | undefined, waist: number) => {
+      if (!t) return null;
+      return {
+        waist,
+        pantsH: 128 - waist,
+        full: t,
+        pants: new Texture({
+          source: t.source,
+          frame: new Rectangle(0, waist, 128, 128 - waist),
+        }),
+      };
+    };
+    return {
+      idle: cut(characterTexture, 95),
+      typing: cut(characterTypingTexture, 90),
+    };
+  }, [characterTexture, characterTypingTexture]);
+
+  // Render path do Claudius sentado: pra preservar o brilho dourado idêntico
+  // ao em pé, NÃO criamos Texture cropada (Pixi escala/sample-a diferente
+  // texturas com `frame` + width/height assimétricos, o que dessatura o tint).
+  // Usamos a textura full direto e empurramos a base do sprite pra abaixo do
+  // tampo da mesa, deixando o desk cobrir naturalmente as pernas via z-order.
+  // O cabeça/tronco que ficam visíveis acima da mesa preservam o tint exato.
+  const SEATED_HIDE_RATIO = 0.42; // 42% do sprite fica escondido atrás da mesa
 
   // Memoize draw callbacks
   const drawBossCallback = useMemo(
@@ -255,8 +359,24 @@ function BossSpriteComponent({
 
   const bubbleOffset = -80;
 
+  const handleBossTap = useCallback(() => {
+    if (!clickToFocusEnabled) return;
+    const canvas = document.querySelector(".pixi-canvas-container canvas");
+    if (!canvas) return;
+    const rect = (canvas as HTMLElement).getBoundingClientRect();
+    const scale = rect.width / 1280;
+    const screenX = rect.left + position.x * scale;
+    const screenY = rect.top + position.y * scale;
+    openFocusPopup("boss", screenX, screenY);
+  }, [clickToFocusEnabled, position.x, position.y, openFocusPopup]);
+
   return (
-    <pixiContainer x={position.x} y={position.y}>
+    <pixiContainer
+      x={position.x}
+      y={position.y}
+      onPointerTap={handleBossTap}
+      interactive={clickToFocusEnabled}
+    >
       {/* Chair - behind everything */}
       {chairTexture ? (
         <pixiSprite
@@ -273,8 +393,43 @@ function BossSpriteComponent({
       {/* Boss character (body + accessories) - hidden when away from desk */}
       {!isAway && (
         <pixiContainer y={6}>
-          {/* Boss body - in front of chair, behind desk */}
-          <pixiGraphics draw={drawBossCallback} />
+          {/* Boss body — sentado, sempre cropado pra mostrar só do peito
+              pra cima. Sem o crop, sprites grandes (240px) mostram pernas
+              abaixo da mesa. Match com SEATED_CROP_RATIO usado nas
+              cadeiras dos outros personagens (chairs.ts: 0.58). */}
+          {(() => {
+            // Mesmo pipeline visual que o WanderingBoss em pé: textura full
+            // sem crop, width=height (sem distorção). A base do sprite é
+            // empurrada pra abaixo do tampo da mesa (y=4) por SEATED_HIDE_RATIO,
+            // assim a metade inferior fica escondida atrás do desk via z-order
+            // (desk renderiza depois neste container). Tint dourado intacto.
+            const validIdleFrames = characterIdleFrames?.filter(
+              (t): t is Texture => t != null,
+            );
+            const activeTexture =
+              validIdleFrames && validIdleFrames.length > 0
+                ? validIdleFrames[
+                    Math.floor(typingTime * 1.5) % validIdleFrames.length
+                  ]
+                : isTyping && characterTypingTexture
+                  ? characterTypingTexture
+                  : characterTexture;
+            if (!activeTexture) {
+              return <pixiGraphics draw={drawBossCallback} />;
+            }
+            const hideOffset = characterRenderSize * SEATED_HIDE_RATIO;
+            return (
+              <pixiSprite
+                texture={activeTexture}
+                anchor={{ x: 0.5, y: 1 }}
+                x={5}
+                y={4 + hideOffset}
+                width={characterRenderSize}
+                height={characterRenderSize}
+                tint={bodyTint ?? 0xffffff}
+              />
+            );
+          })()}
 
           {/* Sunglasses - boss always looks cool (drawn before arms) */}
           {sunglassesTexture && (
@@ -290,31 +445,33 @@ function BossSpriteComponent({
         </pixiContainer>
       )}
 
-      {/* Desk surface - in front of boss */}
+      {/* Desk surface - in front of boss. Subida ~20px (de y=30 pra y=10)
+          pra cobrir o tronco do Claude e dar o efeito "sentado atrás da
+          mesa" — antes ficava na cintura e expunha o corpo inteiro. */}
       {deskTexture ? (
         <pixiSprite
           texture={deskTexture}
           anchor={{ x: 0.5, y: 0 }}
-          y={30}
+          y={10}
           scale={0.105}
         />
       ) : (
         <pixiGraphics draw={drawFallbackDesk} />
       )}
 
-      {/* Keyboard - on desk surface */}
+      {/* Keyboard - on desk surface (subido junto com a mesa). */}
       {keyboardTexture && (
         <pixiSprite
           texture={keyboardTexture}
           anchor={0.5}
           x={0}
-          y={42}
+          y={22}
           scale={0.04}
         />
       )}
 
-      {/* Arms - hidden when away from desk */}
-      {!isAway && (
+      {/* Arms - hidden when away from desk or when using character sprite */}
+      {!isAway && !characterTexture && (
         <pixiContainer y={6}>
           <pixiGraphics draw={drawRightArmCallback} />
           <pixiGraphics draw={drawLeftArmCallback} />
@@ -332,32 +489,72 @@ function BossSpriteComponent({
         />
       )}
 
-      {/* Monitor - left side of desk */}
+      {/* Monitor - na frente do personagem (rendered último → fica por
+          cima de tudo, inclusive do tronco do Claude). */}
       {monitorTexture && (
         <pixiSprite
           texture={monitorTexture}
           anchor={0.5}
           x={-45}
-          y={27}
+          y={7}
           scale={0.08}
         />
       )}
 
-      {/* Boss label - hidden when away from desk */}
+      {/* Boss label - hidden when away from desk.
+          Dark pill com borda dourada.
+          Matemática pro Claude gold sprite (characterRenderSize=240,
+          configurado em OfficeGame.tsx:1441):
+            sprite anchor bottom = y=62 (typing) dentro de container y=6
+            sprite top em BossSprite root = 6 + 62 - 240 = -172
+            + padding transparente do PNG (~25px no topo) → cabeça
+              visível em y ≈ -147
+            Badge a ~20px acima da cabeça visível = y ≈ -167
+            Como a pill desce ~11px (scale 0.5 × pillH/2), centro
+              ideal = y=-200 pro gap visual ficar limpo.
+          (Pro sprite chibi 128 sem padding, equivalente seria y=-90.) */}
       {!isAway && (
-        <pixiContainer y={-63} scale={0.5}>
+        <pixiContainer x={5} y={-97}>
+          <pixiGraphics
+            draw={(g) => {
+              const label = "Claudius";
+              // Mesma proporção da badge do WanderingBoss / UserAvatar:
+              // sem container scale=0.5, render direto no tamanho final
+              // pra evitar downscale (que dessaturava o dourado).
+              const pillW = Math.max(56, label.length * 11 + 20);
+              const pillH = 22;
+              g.clear();
+              g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+              g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+              g.stroke({ color: 0xb8972a, width: 1.5 });
+            }}
+          />
           <pixiText
-            text="Claude"
+            text="Claudius"
             anchor={0.5}
+            resolution={2}
             style={{
               fontFamily: "monospace",
-              fontSize: 24,
-              fill: 0xffffff,
+              fontSize: 18,
+              fill: 0xfde7b0,
               fontWeight: "bold",
-              stroke: { width: 4, color: 0x000000 },
             }}
-            resolution={2}
           />
+        </pixiContainer>
+      )}
+
+      {/* Indicador de trabalho do Claudius — fica acima da badge "Claudius".
+          Aparece quando `isWorking` é true (boss.backendState working /
+          delegating / receiving) — ou seja, ele está produzindo E bloqueado
+          pra novas mensagens. ⚔️🔨🛡️ deixa óbvio que não dá pra
+          interromper agora. y=-250: ~50px acima da badge (y=-200). */}
+      {!isAway && isWorking && (
+        <pixiContainer
+          x={5}
+          y={-97 - CLAUDIUS_WORK_INDICATOR_GAP}
+          scale={0.5}
+        >
+          <WorkIndicator />
         </pixiContainer>
       )}
 
@@ -372,6 +569,9 @@ function BossSpriteComponent({
       {renderBubble && bubble && !isAway && (
         <Bubble content={bubble} yOffset={bubbleOffset} />
       )}
+
+      {/* Sims-style plumbob — only renders when boss is being driven. */}
+      {isControlled && <Plumbob />}
     </pixiContainer>
   );
 }
@@ -433,17 +633,28 @@ function MobileBossComponent({
         />
       )}
 
-      {/* Boss label */}
-      <pixiContainer y={-63} scale={0.5}>
+      {/* Boss label — same pill style as Pedro's. Subido pra -58 pra
+          acompanhar o BossSprite estático (-100). */}
+      <pixiContainer y={-58} scale={0.5}>
+        <pixiGraphics
+          draw={(g) => {
+            const label = "Claudius";
+            const pillW = Math.max(112, label.length * 22 + 40);
+            const pillH = 44;
+            g.clear();
+            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 14);
+            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+            g.stroke({ color: 0xb8972a, width: 3 });
+          }}
+        />
         <pixiText
-          text="Claude"
+          text="Claudius"
           anchor={0.5}
           style={{
             fontFamily: "monospace",
-            fontSize: 24,
-            fill: 0xffffff,
+            fontSize: 36,
+            fill: 0xfde7b0,
             fontWeight: "bold",
-            stroke: { width: 4, color: 0x000000 },
           }}
           resolution={2}
         />

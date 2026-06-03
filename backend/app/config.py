@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     # is skipped (backwards-compatible).
     CLAUDE_OFFICE_API_KEY: str = ""
 
+    # Supabase self-hosted (JP) — persistência das conversas do painel
+    # "Pergunta ao Claude". service_role só fica no backend.
+    SUPABASE_URL: str = "https://srv752536.hstgr.cloud"
+    SUPABASE_SERVICE_KEY: str = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODAzMjIzMjksImV4cCI6MjA5NTY4MjMyOX0."
+        "SLqDLs4Ba-P0HekzjeetPUYMVZfWOavJxEz4DC4zOOE"
+    )
+
     model_config = SettingsConfigDict(env_file=".env")
 
     def translate_path(self, path: str) -> str:

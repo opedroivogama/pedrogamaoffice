@@ -21,6 +21,7 @@ interface UseSessionSwitchResult {
   handleDeleteSession: (session: Session) => Promise<void>;
   handleClearDB: () => Promise<void>;
   handleSimulate: () => Promise<void>;
+  handleStopSimulation: () => Promise<void>;
   handleReset: () => void;
   handleRenameSession: (sessionId: string, newName: string) => Promise<void>;
 }
@@ -136,6 +137,23 @@ export function useSessionSwitch({
     }
   };
 
+  const handleStopSimulation = async (): Promise<void> => {
+    try {
+      const res = await fetch(
+        "http://localhost:8000/api/v1/sessions/simulate",
+        { method: "DELETE" },
+      );
+      if (res.ok) {
+        showStatus(t("status.simulationStopped"), "success");
+      } else {
+        showStatus(t("status.failedSimulation"), "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showStatus(t("status.errorConnecting"), "error");
+    }
+  };
+
   const handleReset = (): void => {
     agentMachineService.reset();
     useGameStore.getState().resetForSessionSwitch();
@@ -175,6 +193,7 @@ export function useSessionSwitch({
     handleDeleteSession,
     handleClearDB,
     handleSimulate,
+    handleStopSimulation,
     handleReset,
     handleRenameSession,
   };

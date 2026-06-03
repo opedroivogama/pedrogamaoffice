@@ -81,7 +81,7 @@ export function PointerRing({
         }}
       />
       {label && (
-        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-orange-400 text-xs font-mono font-bold">
+        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-jp-gold-soft text-xs font-mono font-bold">
           {"\u{1F446}"} {label}
         </div>
       )}

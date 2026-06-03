@@ -290,11 +290,17 @@ def _handle_user_prompt_submit(
         except ET.ParseError:
             pass  # Fall through to regular prompt handling
 
-    # Regular user prompt
-    if len(prompt) > 50:
-        prompt = prompt[:47] + "..."
-    data["prompt"] = prompt
-    data["summary"] = f"User: {prompt}" if prompt else "User submitted prompt"
+    # Regular user prompt.
+    # `prompt` carries the Big Boss (Pedro) speech bubble — UserAvatar renders
+    # it with maxChars=300 (see OfficeGame.tsx + AgentSprite.Bubble), so we
+    # forward up to 300 chars here. `summary` is the short timeline label and
+    # stays trimmed to ~50 chars.
+    full_prompt = prompt[:300] if len(prompt) > 300 else prompt
+    short_prompt = (prompt[:47] + "...") if len(prompt) > 50 else prompt
+    data["prompt"] = full_prompt
+    data["summary"] = (
+        f"User: {short_prompt}" if short_prompt else "User submitted prompt"
+    )
 
 
 def _handle_permission_request(raw_data: dict[str, Any], data: dict[str, Any]) -> None:

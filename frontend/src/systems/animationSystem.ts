@@ -162,8 +162,15 @@ class AnimationSystem {
 
   private updateAgentPositions(deltaSeconds: number): void {
     const store = useGameStore.getState();
+    const controlled = store.controlledEntityId;
 
     for (const [agentId, agent] of store.agents) {
+      // Skip automatic movement entirely when this agent is under user
+      // control — usePlayerControl drives position directly.
+      if (controlled === agentId) {
+        updateAgentObstacle(agentId, agent.currentPosition);
+        continue;
+      }
       if (!agent.path) {
         // Still update obstacle position for stationary agents
         updateAgentObstacle(agentId, agent.currentPosition);

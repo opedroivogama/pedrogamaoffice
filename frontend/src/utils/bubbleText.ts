@@ -6,7 +6,7 @@
  */
 
 /** Maximum characters shown in a bubble before truncation. */
-const BUBBLE_MAX_CHARS = 60;
+const BUBBLE_MAX_CHARS = 100;
 
 /**
  * Truncate bubble text to a maximum character length.

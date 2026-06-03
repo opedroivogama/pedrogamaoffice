@@ -78,14 +78,14 @@ export function GitStatusPanel() {
         ? t("git.noRepo")
         : t("git.waitingForStatus");
     return (
-      <div className="flex flex-col h-full bg-slate-950 border border-slate-800 rounded-lg overflow-hidden font-mono text-xs">
-        <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center gap-2">
-          <GitBranch size={14} className="text-slate-500" />
-          <span className="text-slate-300 font-bold uppercase tracking-wider">
+      <div className="flex flex-col h-full bg-jp-ink border border-jp-divider-soft rounded-lg overflow-hidden font-mono text-xs">
+        <div className="bg-jp-surface-1 px-3 py-2 border-b border-jp-divider-soft flex items-center gap-2">
+          <GitBranch size={14} className="text-jp-fg-dim" />
+          <span className="text-jp-fg font-bold uppercase tracking-wider">
             {t("git.title")}
           </span>
         </div>
-        <div className="flex-grow flex items-center justify-center text-slate-600 italic p-4 text-center">
+        <div className="flex-grow flex items-center justify-center text-jp-fg-dim italic p-4 text-center">
           {message}
         </div>
       </div>
@@ -97,10 +97,10 @@ export function GitStatusPanel() {
   const stagedCount = changedFiles.filter((f) => f.staged).length;
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 border border-slate-800 rounded-lg overflow-hidden font-mono text-xs">
+    <div className="flex flex-col h-full bg-jp-ink border border-jp-divider-soft rounded-lg overflow-hidden font-mono text-xs">
       {/* Header */}
-      <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2 text-slate-300 font-bold uppercase tracking-wider">
+      <div className="bg-jp-surface-1 px-3 py-2 border-b border-jp-divider-soft flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2 text-jp-fg font-bold uppercase tracking-wider">
           <GitBranch size={14} className="text-emerald-500" />
           {t("git.title")}
         </div>
@@ -121,19 +121,19 @@ export function GitStatusPanel() {
       </div>
 
       {/* Branch Info */}
-      <div className="px-3 py-2 border-b border-slate-800 flex-shrink-0">
+      <div className="px-3 py-2 border-b border-jp-divider-soft flex-shrink-0">
         <span className="text-emerald-400 font-bold">{gitStatus.branch}</span>
       </div>
 
       {/* Changed Files Section */}
       {changedFiles.length > 0 && (
-        <div className="flex-shrink-0 max-h-32 flex flex-col border-b border-slate-800">
-          <div className="px-3 py-1.5 bg-slate-900/50 flex items-center gap-2 text-slate-400 flex-shrink-0">
+        <div className="flex-shrink-0 max-h-32 flex flex-col border-b border-jp-divider-soft">
+          <div className="px-3 py-1.5 bg-jp-surface-1/50 flex items-center gap-2 text-jp-fg-muted flex-shrink-0">
             <FileEdit size={12} />
             <span className="font-bold uppercase tracking-wider text-[10px]">
               {t("git.changedFiles")}
             </span>
-            <span className="text-slate-600 text-[10px]">
+            <span className="text-jp-fg-dim text-[10px]">
               ({changedFiles.length})
             </span>
             {stagedCount > 0 && (
@@ -169,39 +169,39 @@ export function GitStatusPanel() {
       )}
 
       {/* Commits Header */}
-      <div className="px-3 py-1.5 bg-slate-900/50 border-b border-slate-800 flex items-center gap-2 text-slate-400 flex-shrink-0">
+      <div className="px-3 py-1.5 bg-jp-surface-1/50 border-b border-jp-divider-soft flex items-center gap-2 text-jp-fg-muted flex-shrink-0">
         <GitCommit size={12} />
         <span className="font-bold uppercase tracking-wider text-[10px]">
           {t("git.recentCommits")}
         </span>
-        <span className="text-slate-600 text-[10px]">({commits.length})</span>
+        <span className="text-jp-fg-dim text-[10px]">({commits.length})</span>
       </div>
 
       {/* Commits List (Scrollable) */}
       <div className="flex-grow overflow-y-auto">
         {commits.length === 0 ? (
-          <div className="text-slate-600 italic p-4 text-center">
+          <div className="text-jp-fg-dim italic p-4 text-center">
             {t("git.noCommits")}
           </div>
         ) : (
-          <div className="divide-y divide-slate-800/50">
+          <div className="divide-y divide-jp-divider-soft/50">
             {commits.map((commit) => (
               <div
                 key={commit.hash}
-                className="px-3 py-2 hover:bg-slate-900/50 transition-colors group"
+                className="px-3 py-2 hover:bg-jp-surface-1/50 transition-colors group"
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <span className="text-cyan-400 font-bold flex-shrink-0 group-hover:text-cyan-300">
                     {commit.hash}
                   </span>
-                  <span className="text-slate-500 text-[10px] flex-shrink-0">
+                  <span className="text-jp-fg-dim text-[10px] flex-shrink-0">
                     {commit.relative_time}
                   </span>
                 </div>
-                <div className="text-slate-300 leading-tight line-clamp-2 group-hover:text-white">
+                <div className="text-jp-fg leading-tight line-clamp-2 group-hover:text-white">
                   {commit.message}
                 </div>
-                <div className="text-slate-500 text-[10px] mt-1">
+                <div className="text-jp-fg-dim text-[10px] mt-1">
                   {commit.author}
                 </div>
               </div>

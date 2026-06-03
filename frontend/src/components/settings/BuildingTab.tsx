@@ -48,13 +48,13 @@ function IconPicker({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white text-xs font-mono hover:border-purple-500 focus:border-purple-500 focus:outline-none transition-colors flex items-center gap-2"
+        className="w-full px-2 py-1.5 bg-jp-surface-1 border border-jp-divider rounded text-white text-xs font-mono hover:border-purple-500 focus:border-purple-500 focus:outline-none transition-colors flex items-center gap-2"
       >
         <span className="text-base leading-none">{value || "\u{1F3E2}"}</span>
-        <span className="text-slate-500 text-[10px]">{"\u25BC"}</span>
+        <span className="text-jp-fg-dim text-[10px]">{"\u25BC"}</span>
       </button>
       {open && (
-        <div className="absolute z-50 top-full left-0 mt-1 p-2 bg-slate-800 border border-slate-600 rounded-lg shadow-xl grid grid-cols-5 gap-1 w-40">
+        <div className="absolute z-50 top-full left-0 mt-1 p-2 bg-jp-surface-2 border border-jp-divider rounded-lg shadow-xl grid grid-cols-5 gap-1 w-40">
           {FLOOR_ICONS.map((icon) => (
             <button
               key={icon}
@@ -64,7 +64,7 @@ function IconPicker({
                 setOpen(false);
               }}
               className={`p-1.5 rounded text-base leading-none hover:bg-purple-500/20 transition-colors ${
-                value === icon ? "bg-purple-500/30 ring-1 ring-purple-500" : ""
+                value === icon ? "bg-purple-500/30 ring-1 ring-jp-gold" : ""
               }`}
             >
               {icon}
@@ -252,13 +252,13 @@ export function BuildingTab({
   return (
     <div className="space-y-6">
       {/* Hint */}
-      <p className="text-slate-500 text-xs">
+      <p className="text-jp-fg-dim text-xs">
         {t("settings.building.enableHint")}
       </p>
 
       {/* Building Name */}
       <div>
-        <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">
+        <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-2">
           {t("settings.building.name")}
         </label>
         <input
@@ -266,18 +266,18 @@ export function BuildingTab({
           value={buildingName}
           onChange={(e) => setBuildingName(e.target.value)}
           placeholder={t("settings.building.namePlaceholder")}
-          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm font-mono focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 transition-colors"
+          className="w-full px-3 py-2 bg-jp-surface-2 border border-jp-divider rounded-lg text-white text-sm font-mono focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-jp-gold transition-colors"
         />
       </div>
 
       {/* Floors List */}
       <div>
-        <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+        <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
           {t("settings.building.floors")}
         </label>
 
         {floors.length === 0 ? (
-          <p className="text-slate-600 text-sm font-mono py-4 text-center border border-dashed border-slate-800 rounded-lg">
+          <p className="text-jp-fg-dim text-sm font-mono py-4 text-center border border-dashed border-jp-divider-soft rounded-lg">
             {t("settings.building.noFloors")}
           </p>
         ) : (
@@ -285,11 +285,11 @@ export function BuildingTab({
             {floors.map((floor) => (
               <div
                 key={floor.id}
-                className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg space-y-3"
+                className="p-3 bg-jp-surface-2/50 border border-jp-divider rounded-lg space-y-3"
               >
                 {/* Floor header */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-slate-500">
+                  <span className="text-xs font-mono text-jp-fg-dim">
                     {t("settings.building.floorNumber")} {floor.floorNumber}
                   </span>
                   <button
@@ -305,7 +305,7 @@ export function BuildingTab({
                 <div className="grid grid-cols-2 gap-3">
                   {/* Name */}
                   <div>
-                    <label className="block text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">
+                    <label className="block text-jp-fg-dim text-[10px] font-bold uppercase tracking-wider mb-1">
                       {t("settings.building.floorName")}
                     </label>
                     <input
@@ -315,13 +315,13 @@ export function BuildingTab({
                         handleUpdateFloor(floor.id, { name: e.target.value })
                       }
                       placeholder="Engineering"
-                      className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white text-xs font-mono focus:border-purple-500 focus:outline-none transition-colors"
+                      className="w-full px-2 py-1.5 bg-jp-surface-1 border border-jp-divider rounded text-white text-xs font-mono focus:border-purple-500 focus:outline-none transition-colors"
                     />
                   </div>
 
                   {/* Icon */}
                   <div>
-                    <label className="block text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">
+                    <label className="block text-jp-fg-dim text-[10px] font-bold uppercase tracking-wider mb-1">
                       {t("settings.building.icon")}
                     </label>
                     <IconPicker
@@ -332,7 +332,7 @@ export function BuildingTab({
 
                   {/* Accent color */}
                   <div>
-                    <label className="block text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">
+                    <label className="block text-jp-fg-dim text-[10px] font-bold uppercase tracking-wider mb-1">
                       {t("settings.building.accentColor")}
                     </label>
                     <div className="flex items-center gap-2">
@@ -344,9 +344,9 @@ export function BuildingTab({
                             accent: e.target.value,
                           })
                         }
-                        className="w-8 h-8 border border-slate-700 rounded cursor-pointer bg-transparent"
+                        className="w-8 h-8 border border-jp-divider rounded cursor-pointer bg-transparent"
                       />
-                      <span className="text-xs font-mono text-slate-500">
+                      <span className="text-xs font-mono text-jp-fg-dim">
                         {floor.accent}
                       </span>
                     </div>
@@ -354,7 +354,7 @@ export function BuildingTab({
 
                   {/* Repos */}
                   <div className="col-span-2">
-                    <label className="block text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">
+                    <label className="block text-jp-fg-dim text-[10px] font-bold uppercase tracking-wider mb-1">
                       {t("settings.building.repos")}
                     </label>
                     <input
@@ -364,7 +364,7 @@ export function BuildingTab({
                         handleUpdateFloor(floor.id, { repos: e.target.value })
                       }
                       placeholder={t("settings.building.reposPlaceholder")}
-                      className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white text-xs font-mono focus:border-purple-500 focus:outline-none transition-colors"
+                      className="w-full px-2 py-1.5 bg-jp-surface-1 border border-jp-divider rounded text-white text-xs font-mono focus:border-purple-500 focus:outline-none transition-colors"
                     />
                   </div>
                 </div>
@@ -377,14 +377,14 @@ export function BuildingTab({
         <button
           type="button"
           onClick={handleAddFloor}
-          className="mt-3 w-full py-2 border border-dashed border-slate-700 rounded-lg text-sm text-slate-500 hover:text-slate-300 hover:border-slate-600 font-mono transition-colors"
+          className="mt-3 w-full py-2 border border-dashed border-jp-divider rounded-lg text-sm text-jp-fg-dim hover:text-jp-fg hover:border-jp-divider font-mono transition-colors"
         >
           + {t("settings.building.addFloor")}
         </button>
       </div>
 
       {/* Save button */}
-      <div className="pt-4 border-t border-slate-800">
+      <div className="pt-4 border-t border-jp-divider-soft">
         <button
           type="button"
           onClick={handleSave}
@@ -393,7 +393,7 @@ export function BuildingTab({
             saved
               ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-400"
               : saving
-                ? "bg-slate-700 border border-slate-600 text-slate-400 cursor-not-allowed"
+                ? "bg-jp-surface-3 border border-jp-divider text-jp-fg-muted cursor-not-allowed"
                 : "bg-purple-500/20 border border-purple-500/50 text-purple-300 hover:bg-purple-500/30"
           }`}
         >

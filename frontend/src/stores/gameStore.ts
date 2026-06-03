@@ -136,7 +136,7 @@ export interface ReplayFrame {
 // STORE INTERFACE
 // ============================================================================
 
-interface GameStore {
+export interface GameStore {
   // ========== Agent State ==========
   agents: Map<string, AgentAnimationState>;
 
@@ -183,6 +183,69 @@ interface GameStore {
   updateBossTask: (task: string | null) => void;
   setBossInUse: (by: "arrival" | "departure" | null) => void;
   setBossTyping: (typing: boolean) => void;
+  setBossPosition: (position: Position) => void;
+
+  // ========== Player Control ==========
+  // When non-null, the named entity ("boss" / agent ID / user avatar ID like
+  // "pedro") is being driven by the user via WASD/arrow keys. The animation
+  // system skips automatic movement for the controlled entity so user input
+  // takes precedence.
+  controlledEntityId: string | null;
+  setControlledEntity: (id: string | null) => void;
+
+  // Optional facing override for the boss — used by Shift+arrow rotate-only
+  // mode (mirrors `userAvatarFacings`). When set, WanderingBoss renders this
+  // direction instead of the delta-detected one. Cardinal only (boss sprite
+  // sheet has 4 directions). Null = compute from movement delta.
+  bossFacing: "south" | "north" | "east" | "west" | null;
+  setBossFacing: (facing: "south" | "north" | "east" | "west" | null) => void;
+
+  // Click-to-move target for the currently controlled entity. When a tile
+  // is clicked on the map, `path` is the pixel waypoints from current pos
+  // to destination, `pathIdx` is the index of the NEXT waypoint to reach,
+  // and `targetTile` is the grid cell that was clicked (used for the
+  // marker viz). Cleared when the entity reaches the last waypoint OR
+  // the user takes manual override via arrow keys.
+  clickToMoveTarget: {
+    entityId: string;
+    path: Position[];
+    pathIdx: number;
+    targetTile: { gx: number; gy: number };
+  } | null;
+  setClickToMoveTarget: (
+    target: GameStore["clickToMoveTarget"],
+  ) => void;
+  advanceClickToMovePathIdx: (nextIdx: number) => void;
+  clearClickToMoveTarget: () => void;
+
+  // ========== Boss Auto-Walk ==========
+  // Autonomous walk target for the boss. Set by the WebSocket handler in
+  // response to backend `boss_walk_to` messages, OR by useBossAutoWalk's
+  // own wander loop when the boss is IDLE. useBossAutoWalk animates
+  // boss.position toward this point each frame without requiring the user
+  // to take control. Cleared automatically on arrival.
+  bossWalkTarget: Position | null;
+  setBossWalkTarget: (target: Position | null) => void;
+
+  // User avatars (static decoration characters like Pedro / Estagiário /
+  // Chrome Dummy). Positions live here so they can be driven by player
+  // control just like the boss/agents. Persists to /api/v1/preferences/
+  // user_avatar_positions (debounced).
+  userAvatarPositions: Map<string, Position>;
+  setUserAvatarPosition: (id: string, position: Position) => void;
+  loadUserAvatarPositions: () => Promise<void>;
+
+  // Optional facing override per avatar — used by Ctrl+arrow rotate-only
+  // mode. When set, UserAvatar prefers this over the delta-based facing
+  // it computes from position changes. Free-form string to avoid pulling
+  // a UI type into the store; downstream coerces to Direction8.
+  userAvatarFacings: Map<string, string>;
+  setUserAvatarFacing: (id: string, facing: string) => void;
+
+  // Speech-bubble text per user avatar. Independent from boss/agent bubbles
+  // (those go through enqueueBubble + the queue/timer system). Null clears.
+  userAvatarBubbles: Map<string, string>;
+  setUserAvatarBubble: (id: string, text: string | null) => void;
 
   // ========== Bubble Actions (unified for boss and agents) ==========
   enqueueBubble: (
@@ -192,6 +255,11 @@ interface GameStore {
   ) => void;
   advanceBubble: (entityId: string) => void;
   clearBubbles: (entityId: string) => void;
+  /** Live-set the boss bubble content, bypassing the queue. Used by the
+   *  ChatPanel to stream incremental tokens into the floating bubble.
+   *  Pass `null` to clear (equivalent to clearBubbles("boss") without
+   *  also dumping the queue). */
+  setBossBubbleContent: (content: BubbleContent | null) => void;
   getCurrentBubble: (entityId: string) => BubbleContent | null;
   isBubbleQueueEmpty: (entityId: string) => boolean;
   hasBubbleText: (entityId: string, text: string) => boolean;
@@ -210,8 +278,17 @@ interface GameStore {
   gitStatus: GitStatus | null;
   eventLog: EventLogEntry[];
 
+  /** Pedido externo de troca da sessão observada (ex: ChatPanel publica o
+   *  UUID da thread atual aqui pra que o painel passe a observar os eventos
+   *  daquela conversa). Lido por `page.tsx`, que efetiva a troca chamando
+   *  o `setSessionId` real do `useSessions`. `null` = nenhum pedido pendente. */
+  pendingSessionSwitch: string | null;
+
   // Office actions
   setSessionId: (id: string) => void;
+  /** Solicita que o painel troque pra observar a session de id `id`. Passa
+   *  `null` pra limpar o pedido após aplicado. */
+  requestSessionSwitch: (id: string | null) => void;
   setElevatorState: (state: ElevatorState) => void;
   setPhoneState: (state: PhoneState) => void;
   setDeskCount: (count: number) => void;
@@ -275,6 +352,38 @@ const BOSS_POSITION: Position = { x: 640, y: 900 }; // Desk center at y=960 (30*
 const MAX_EVENT_LOG = 500;
 const DEBUG_SETTINGS_KEY = "claude-office-debug-settings";
 const WHITEBOARD_MODE_COUNT = 11; // 0-10 modes
+
+// ============================================================================
+// USER AVATAR POSITION PERSISTENCE
+// ============================================================================
+
+// Debounce backend writes so dragging an avatar around with the arrow keys
+// doesn't fire one HTTP request per frame.
+let _userAvatarSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePersistUserAvatarPositions(
+  positions: Map<string, Position>,
+): void {
+  if (typeof window === "undefined") return;
+  if (_userAvatarSaveTimer) clearTimeout(_userAvatarSaveTimer);
+  // Snapshot the entries now so we serialize the version we intended to save.
+  const snapshot = Object.fromEntries(positions.entries());
+  _userAvatarSaveTimer = setTimeout(() => {
+    void fetch(
+      "http://localhost:8000/api/v1/preferences/user_avatar_positions",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: JSON.stringify(snapshot) }),
+      },
+    ).catch((err) =>
+      console.warn(
+        "[gameStore] Failed to persist user avatar positions:",
+        err,
+      ),
+    );
+  }, 500);
+}
 
 // Initial whiteboard data
 const initialWhiteboardData: WhiteboardData = {
@@ -356,6 +465,19 @@ const initialState = {
   // Boss
   boss: initialBossState,
 
+  // Player control
+  controlledEntityId: null as string | null,
+  bossFacing: null as GameStore["bossFacing"],
+  clickToMoveTarget: null as GameStore["clickToMoveTarget"],
+  bossWalkTarget: null as Position | null,
+  userAvatarPositions: new Map<string, Position>([
+    ["pedro", { x: 950, y: 870 }],
+    ["estagiario", { x: 1130, y: 870 }],
+    ["chrome-dummy", { x: 770, y: 870 }],
+  ]),
+  userAvatarBubbles: new Map<string, string>(),
+  userAvatarFacings: new Map<string, string>(),
+
   // Office
   sessionId: "None",
   deskCount: 8,
@@ -370,6 +492,7 @@ const initialState = {
   gitStatus: null as GitStatus | null,
   eventLog: [] as EventLogEntry[],
   conversation: [] as ConversationEntry[],
+  pendingSessionSwitch: null as string | null,
 
   // Whiteboard
   whiteboardData: initialWhiteboardData,
@@ -705,6 +828,94 @@ export const useGameStore = create<GameStore>()(
         boss: { ...state.boss, isTyping: typing },
       })),
 
+    setBossPosition: (position) =>
+      set((state) => ({
+        boss: { ...state.boss, position },
+      })),
+
+    setControlledEntity: (id) =>
+      set(() => ({
+        controlledEntityId: id,
+        clickToMoveTarget: null,
+        // Releasing/changing control also clears any rotate-only override
+        // so the boss goes back to delta-detected facing.
+        bossFacing: null,
+      })),
+
+    setBossFacing: (facing) => set(() => ({ bossFacing: facing })),
+
+    setClickToMoveTarget: (target) =>
+      set(() => ({ clickToMoveTarget: target })),
+
+    advanceClickToMovePathIdx: (nextIdx) =>
+      set((state) => {
+        if (!state.clickToMoveTarget) return {};
+        return {
+          clickToMoveTarget: { ...state.clickToMoveTarget, pathIdx: nextIdx },
+        };
+      }),
+
+    clearClickToMoveTarget: () => set(() => ({ clickToMoveTarget: null })),
+
+    setBossWalkTarget: (target) => set(() => ({ bossWalkTarget: target })),
+
+    setUserAvatarPosition: (id, position) =>
+      set((state) => {
+        const next = new Map(state.userAvatarPositions);
+        next.set(id, position);
+        schedulePersistUserAvatarPositions(next);
+        return { userAvatarPositions: next };
+      }),
+
+    setUserAvatarFacing: (id, facing) =>
+      set((state) => {
+        const next = new Map(state.userAvatarFacings);
+        // Passing an empty string clears the override so the avatar
+        // resumes delta-based facing.
+        if (facing) next.set(id, facing);
+        else next.delete(id);
+        return { userAvatarFacings: next };
+      }),
+
+    setUserAvatarBubble: (id, text) =>
+      set((state) => {
+        const next = new Map(state.userAvatarBubbles);
+        if (text === null) next.delete(id);
+        else next.set(id, text);
+        return { userAvatarBubbles: next };
+      }),
+
+    loadUserAvatarPositions: async () => {
+      try {
+        const res = await fetch(
+          "http://localhost:8000/api/v1/preferences/user_avatar_positions",
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { value: string | null };
+        if (!data.value) return;
+        const parsed: unknown = JSON.parse(data.value);
+        if (!parsed || typeof parsed !== "object") return;
+        set((state) => {
+          const merged = new Map(state.userAvatarPositions);
+          for (const [id, raw] of Object.entries(parsed as Record<string, unknown>)) {
+            if (
+              raw &&
+              typeof raw === "object" &&
+              "x" in raw &&
+              "y" in raw &&
+              typeof (raw as { x: unknown }).x === "number" &&
+              typeof (raw as { y: unknown }).y === "number"
+            ) {
+              merged.set(id, raw as Position);
+            }
+          }
+          return { userAvatarPositions: merged };
+        });
+      } catch (err) {
+        console.warn("[gameStore] Failed to load user avatar positions:", err);
+      }
+    },
+
     // ========================================================================
     // BUBBLE ACTIONS
     // ========================================================================
@@ -835,6 +1046,18 @@ export const useGameStore = create<GameStore>()(
         return { agents: newAgents };
       }),
 
+    setBossBubbleContent: (content) =>
+      set((state) => ({
+        boss: {
+          ...state.boss,
+          bubble: {
+            ...state.boss.bubble,
+            content,
+            displayStartTime: content ? Date.now() : null,
+          },
+        },
+      })),
+
     clearBubbles: (entityId) =>
       set((state) => {
         if (entityId === "boss") {
@@ -895,6 +1118,7 @@ export const useGameStore = create<GameStore>()(
     // ========================================================================
 
     setSessionId: (id) => set({ sessionId: id }),
+    requestSessionSwitch: (id) => set({ pendingSessionSwitch: id }),
     setElevatorState: (elevatorState) => set({ elevatorState }),
     setPhoneState: (phoneState) => set({ phoneState }),
     setDeskCount: (deskCount) => set({ deskCount }),

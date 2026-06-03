@@ -17,19 +17,19 @@ class SummaryService:
     # and skip the AI namer (otherwise the AI rewrites e.g. an "explore" agent
     # into "Data Diva").
     _AGENT_TYPE_NAMES: dict[str, list[str]] = {
-        "general-purpose": ["The Intern", "Helper Bot", "Agent X", "Minion"],
-        "explore": ["Explorer X", "The Scout", "Data Digger", "Researcher R"],
-        "plan": ["The Planner", "Strategy Sam", "Blueprint Bob", "Road Mapper"],
-        "audit-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
-        "audit-code-quality": ["The Critic", "QA Queen", "Inspector G"],
-        "audit-security": ["Security Sam", "Guard Dog", "Sec Spec"],
-        "audit-documentation": ["The Scribe", "Doc Brown", "Word Wizard"],
-        "fix-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
-        "fix-code-quality": ["Bug Squasher", "Mr. Fixit", "The Fixer"],
-        "fix-security": ["Lock Smith", "Guard Dog", "Security Sam"],
-        "fix-documentation": ["Doc Brown", "The Scribe", "Note Taker"],
-        "markdown-docs-writer": ["The Scribe", "Doc Brown", "Word Wizard"],
-        "webgl-shader-expert": ["Pixel Pete", "Shader Sam", "GPU Guru"],
+        "general-purpose": ["Estagiário", "Faz-Tudo", "Agente X", "Minion"],
+        "explore": ["Explorador", "Batedor", "Garimpeiro", "Detetive"],
+        "plan": ["Planejador", "Estrategista", "Arquiteto", "Mapeador"],
+        "audit-architecture": ["Arquiteto", "Refatorador", "Ninja do Code"],
+        "audit-code-quality": ["Crítico", "Rainha do QA", "Inspetor"],
+        "audit-security": ["Sentinela", "Cão de Guarda", "Segurança"],
+        "audit-documentation": ["Escriba", "Dr. Doc", "Mago da Palavra"],
+        "fix-architecture": ["Arquiteto", "Refatorador", "Ninja do Code"],
+        "fix-code-quality": ["Esmaga-Bug", "Sr. Conserta", "O Resolve"],
+        "fix-security": ["Chaveiro", "Cão de Guarda", "Sentinela"],
+        "fix-documentation": ["Dr. Doc", "Escriba", "Anotador"],
+        "markdown-docs-writer": ["Escriba", "Dr. Doc", "Mago da Palavra"],
+        "webgl-shader-expert": ["Pintor Pixel", "Mago Shader", "Guru GPU"],
     }
     _MAPPED_AGENT_TYPES: frozenset[str] = frozenset(_AGENT_TYPE_NAMES.keys())
 
@@ -68,7 +68,9 @@ class SummaryService:
 
         desc = task_description[:1000] if len(task_description) > 1000 else task_description
 
-        result = await self._call_with_retry(f"In 10 words or less, summarize this task:\n{desc}")
+        result = await self._call_with_retry(
+            f"Resuma esta tarefa em no máximo 10 palavras, em português brasileiro:\n{desc}"
+        )
         return result or fallback
 
     async def summarize_user_prompt(self, prompt: str) -> str:
@@ -92,7 +94,7 @@ class SummaryService:
         desc = prompt[:1500] if len(prompt) > 1500 else prompt
 
         result = await self._call_with_retry(
-            f"In one sentence, summarize what this request asks for:\n{desc}"
+            f"Em uma frase curta, em português brasileiro, resuma o que esta solicitação pede:\n{desc}"
         )
         if result:
             return " ".join(result.split())
@@ -119,17 +121,22 @@ class SummaryService:
 
         taken = ""
         if existing_names:
-            taken = f"\nNames already taken (DO NOT use these): {', '.join(sorted(existing_names))}"
+            taken = (
+                f"\nNomes já usados (NÃO use estes): {', '.join(sorted(existing_names))}"
+            )
 
         result = await self._call_with_retry(
-            "Create a 1-3 word nickname that DIRECTLY relates to the task below. "
-            "Extract the KEY ACTION or SUBJECT from the task and build the name around it. "
-            "Examples: 'migrate YAML config' → YAML Yoda or Config King; "
-            "'write unit tests' → Test Pilot; 'fix database queries' → Query Queen; "
-            "'update documentation' → Doc Holiday; 'debug auth issue' → Bug Bounty. "
-            "The name MUST reference the main subject (YAML, tests, database, docs, etc). "
-            "Use puns, pop culture, or alliteration. Max 15 chars. "
-            f"Task: {desc}{taken}\nNickname:"
+            "Crie um apelido de 1 a 3 palavras em PORTUGUÊS BRASILEIRO que se "
+            "relacione DIRETAMENTE com a tarefa abaixo. "
+            "Extraia a AÇÃO ou ASSUNTO principal e construa o nome em torno disso. "
+            "Exemplos: 'migrar config YAML' → Doutor YAML ou Rei da Config; "
+            "'escrever testes unitários' → Piloto de Testes; "
+            "'corrigir queries do banco' → Rainha da Query; "
+            "'atualizar documentação' → Escriba; "
+            "'debugar auth' → Caça-Bug. "
+            "O nome DEVE referenciar o assunto (YAML, testes, banco, docs, etc). "
+            "Use trocadilhos, cultura pop brasileira, ou aliteração. Máximo 15 caracteres. "
+            f"Tarefa: {desc}{taken}\nApelido:"
         )
         if result:
             clean = re.sub(r'["\'\-:.,!?()]', " ", result.strip())
@@ -162,7 +169,7 @@ class SummaryService:
         taken = existing_names or set()
 
         if (not description or not description.strip()) and not (agent_type and agent_type.strip()):
-            return self.dedupe_name("The Intern", existing_names)
+            return self.dedupe_name("Estagiário", existing_names)
 
         desc_lower = (description or "").strip().lower()
         type_lower = (agent_type or "").strip().lower()
@@ -185,148 +192,214 @@ class SummaryService:
                     return random.choice(available)
                 return self.dedupe_name(random.choice(names), taken)
 
-        # Fun name mappings by task category - each has multiple options for variety
+        # Mapeamento de categoria → apelidos em PT-BR. Inclui palavras-chave
+        # em PT e EN porque a descrição da tarefa pode vir nos dois idiomas
+        # (prompt do Pedro em PT, mas slug do subagent_type às vezes em EN).
         task_names: dict[tuple[str, ...], list[str]] = {
-            # QA / Review / Validation
-            ("review", "audit", "inspect", "qa", "quality"): [
-                "Judge Judy",
-                "The Critic",
-                "Hawkeye",
-                "Inspector G",
-                "The Auditor",
+            # QA / Revisão / Validação
+            (
+                "review", "audit", "inspect", "qa", "quality",
+                "revisar", "revisão", "auditar", "auditoria", "inspecionar",
+                "qualidade",
+            ): [
+                "Juiz",
+                "Crítico",
+                "Olho Vivo",
+                "Inspetor",
+                "Auditor",
             ],
-            ("test", "spec", "assert", "expect"): [
-                "Test Pilot",
-                "Dr. Test",
-                "QA Queen",
-                "Bug Buster",
-                "Test Dummy",
+            (
+                "test", "spec", "assert", "expect",
+                "teste", "testar",
+            ): [
+                "Piloto Teste",
+                "Dr. Teste",
+                "Rainha do QA",
+                "Caça-Bug",
+                "Boneco Teste",
             ],
-            ("validate", "verify", "check", "ensure"): [
-                "The Checker",
-                "Validator V",
-                "Fact Checker",
-                "Truth Seeker",
+            (
+                "validate", "verify", "check", "ensure",
+                "validar", "verificar", "checar", "garantir",
+            ): [
+                "Checador",
+                "Validador",
+                "Fiscal",
+                "Caça-Verdade",
             ],
-            # Cleaning / Formatting / Refactoring
-            ("clean", "cleanup", "tidy", "organize"): [
-                "The Cleaner",
-                "Mr. Clean",
-                "Tidy Bot",
-                "Neat Freak",
+            # Limpeza / Formatação / Refatoração
+            (
+                "clean", "cleanup", "tidy", "organize",
+                "limpar", "limpeza", "organizar", "arrumar",
+            ): [
+                "Faxineiro",
+                "Sr. Limpeza",
+                "Bot Tidy",
+                "Maníaco Limpeza",
             ],
-            ("format", "prettier", "lint", "style"): [
-                "Style Guru",
-                "Format King",
-                "Lint Lord",
-                "Pretty Boy",
+            (
+                "format", "prettier", "lint", "style",
+                "formatar", "estilo", "estilizar",
+            ): [
+                "Guru do Estilo",
+                "Rei Formato",
+                "Lord Lint",
+                "Bonitão",
             ],
-            ("refactor", "restructure", "reorganize"): [
-                "The Architect",
-                "Refactor Rex",
-                "Code Ninja",
-                "Dr. Refactor",
+            (
+                "refactor", "restructure", "reorganize",
+                "refatorar", "refatoração", "reestruturar",
+            ): [
+                "Arquiteto",
+                "Refatorador",
+                "Ninja do Code",
+                "Dr. Refator",
             ],
-            # Debugging / Fixing
-            ("debug", "diagnose", "troubleshoot"): [
-                "Bug Hunter",
+            # Debug / Fix
+            (
+                "debug", "diagnose", "troubleshoot",
+                "debugar", "diagnosticar", "investigar bug",
+            ): [
+                "Caça-Bug",
                 "Dr. Debug",
                 "Sherlock",
-                "The Debugger",
+                "O Debugador",
             ],
-            ("fix", "repair", "patch", "resolve"): [
-                "The Fixer",
+            (
+                "fix", "repair", "patch", "resolve",
+                "consertar", "corrigir", "resolver", "arrumar",
+            ): [
+                "O Resolve",
                 "Patch Adams",
-                "Mr. Fixit",
-                "Bug Squasher",
+                "Sr. Conserta",
+                "Esmaga-Bug",
             ],
-            # Documentation / Writing
-            ("doc", "document", "readme", "comment"): [
-                "The Scribe",
-                "Doc Brown",
-                "Word Wizard",
-                "Note Taker",
+            # Documentação / Escrita
+            (
+                "doc", "document", "readme", "comment",
+                "documentação", "documentar", "comentário",
+            ): [
+                "Escriba",
+                "Dr. Doc",
+                "Mago da Palavra",
+                "Anotador",
             ],
-            ("write", "create", "draft", "compose"): [
-                "The Writer",
+            (
+                "write", "create", "draft", "compose",
+                "escrever", "redigir", "compor",
+            ): [
+                "Escritor",
                 "Wordsmith",
-                "Pen Pal",
-                "Script Kid",
+                "Penalista",
+                "Roteirista",
             ],
-            # Research / Exploration
-            ("research", "investigate", "explore", "analyze"): [
-                "The Scout",
-                "Explorer X",
-                "Data Digger",
-                "Researcher R",
+            # Pesquisa / Exploração
+            (
+                "research", "investigate", "explore", "analyze",
+                "pesquisar", "investigar", "explorar", "analisar",
+            ): [
+                "Batedor",
+                "Explorador",
+                "Garimpeiro",
+                "Pesquisador",
             ],
-            ("search", "find", "locate", "discover"): [
-                "The Seeker",
-                "Finder Fred",
-                "Search Bot",
-                "Tracker T",
+            (
+                "search", "find", "locate", "discover",
+                "buscar", "encontrar", "localizar", "descobrir", "achar",
+            ): [
+                "O Caçador",
+                "Achador",
+                "Bot Busca",
+                "Rastreador",
             ],
-            # Building / Implementation
-            ("build", "implement", "create", "develop"): [
-                "The Builder",
-                "Code Monkey",
-                "Dev Dawg",
-                "Maker Mike",
+            # Build / Implementação
+            (
+                "build", "implement", "develop",
+                "construir", "implementar", "desenvolver", "criar",
+            ): [
+                "Construtor",
+                "Codador",
+                "Dev Bambambã",
+                "Pedreiro",
             ],
-            ("setup", "configure", "install", "init"): [
-                "Setup Sam",
-                "Config Kid",
-                "Init Ian",
+            (
+                "setup", "configure", "install", "init",
+                "configurar", "instalar", "iniciar",
+            ): [
+                "Sr. Setup",
+                "Configurador",
+                "Iniciador",
                 "Boot Boss",
             ],
-            # Type checking / Static analysis
-            ("type", "typecheck", "typing", "pyright", "mypy"): [
-                "Type Tyrant",
-                "Type Cop",
-                "Type Ninja",
-                "Mr. Strict",
+            # Type checking / análise estática
+            (
+                "type", "typecheck", "typing", "pyright", "mypy",
+                "tipo", "tipagem",
+            ): [
+                "Tirano dos Tipos",
+                "Polícia dos Tipos",
+                "Ninja do Tipo",
+                "Sr. Rigor",
             ],
-            # Migration / Upgrade
-            ("migrate", "upgrade", "update", "convert"): [
-                "The Migrator",
-                "Upgrade Ulysses",
-                "Version Vic",
-                "Update Ursula",
+            # Migração / Upgrade
+            (
+                "migrate", "upgrade", "update", "convert",
+                "migrar", "atualizar", "converter",
+            ): [
+                "O Migrador",
+                "Mudador",
+                "Atualizador",
+                "Conversor",
             ],
-            # Performance / Optimization
-            ("optimize", "performance", "speed", "fast"): [
-                "Speed Demon",
-                "Turbo T",
-                "Optimizer O",
-                "Fast Freddy",
+            # Performance / Otimização
+            (
+                "optimize", "performance", "speed", "fast",
+                "otimizar", "performance", "velocidade", "rápido",
+            ): [
+                "Demônio da Velocidade",
+                "Turbão",
+                "Otimizador",
+                "Foguete",
             ],
-            # Security
-            ("security", "secure", "vulnerability", "auth"): [
-                "Security Sam",
-                "Guard Dog",
-                "Sec Spec",
-                "Lock Smith",
+            # Segurança
+            (
+                "security", "secure", "vulnerability", "auth",
+                "segurança", "vulnerabilidade", "autenticação",
+            ): [
+                "Sentinela",
+                "Cão de Guarda",
+                "Vigia",
+                "Chaveiro",
             ],
-            # Database
-            ("database", "sql", "query", "migration"): [
-                "Data Dan",
-                "SQL Sally",
-                "Query Queen",
-                "DB Dude",
+            # Banco de dados
+            (
+                "database", "sql", "query", "migration",
+                "banco", "consulta", "migração",
+            ): [
+                "Dadão",
+                "SQL Master",
+                "Rainha da Query",
+                "Cara do Banco",
             ],
             # API / Backend
-            ("api", "endpoint", "route", "backend"): [
-                "API Andy",
-                "Route Runner",
-                "Backend Bob",
-                "Endpoint Ed",
+            (
+                "api", "endpoint", "route", "backend",
+                "rota", "endpoint",
+            ): [
+                "Sr. API",
+                "Corredor de Rotas",
+                "Sr. Backend",
+                "Pontista",
             ],
             # Frontend / UI
-            ("frontend", "ui", "component", "react", "css"): [
-                "UI Ursula",
-                "Pixel Pete",
-                "Front Fred",
-                "Style Steve",
+            (
+                "frontend", "ui", "component", "react", "css",
+                "componente", "tela", "interface",
+            ): [
+                "Sra. Telinha",
+                "Pintor Pixel",
+                "Front Boy",
+                "Estilista",
             ],
         }
 
@@ -338,17 +411,17 @@ class SummaryService:
                     return random.choice(available)
                 return self.dedupe_name(random.choice(names), taken)
 
-        # Fallback: generic fun names
+        # Fallback: nomes genéricos em PT-BR
         generic_names = [
-            "Code Cadet",
-            "Bit Buddy",
-            "Logic Larry",
-            "Algo Al",
-            "Helper Bot",
-            "Task Force",
-            "Agent X",
-            "The Intern",
-            "Worker Bee",
+            "Cadete do Code",
+            "Bit Bambino",
+            "Lógica Larry",
+            "Algoritmão",
+            "Faz-Tudo",
+            "Tropa de Choque",
+            "Agente X",
+            "Estagiário",
+            "Abelha Operária",
             "Minion",
         ]
         available = [n for n in generic_names if n not in taken]
@@ -405,12 +478,15 @@ class SummaryService:
 
         truncated = prompt[:1000] if len(prompt) > 1000 else prompt
         result = await self._call_with_retry(
-            "Does this request ask for a report, document, or documentation to be created? "
-            "Reply with ONLY 'yes' or 'no':\n" + truncated
+            "Esta solicitação pede a criação de um relatório, documento ou "
+            "documentação? Responda APENAS com 'sim' ou 'não':\n" + truncated
         )
 
         if result:
-            return result.strip().lower() == "yes"
+            normalized = result.strip().lower()
+            # Aceita "sim"/"yes" pra tolerar respostas residuais em inglês
+            # caso o modelo escorregue no idioma.
+            return normalized in {"sim", "yes"}
         return fallback_result
 
     async def summarize_response(self, response_text: str) -> str:
@@ -423,7 +499,7 @@ class SummaryService:
         text = response_text[:2000] if len(response_text) > 2000 else response_text
 
         result = await self._call_with_retry(
-            f"In 15 words or less, summarize this response:\n{text}"
+            f"Em no máximo 15 palavras, em português brasileiro, resuma esta resposta:\n{text}"
         )
         return result or fallback
 

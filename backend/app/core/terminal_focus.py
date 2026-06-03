@@ -110,24 +110,59 @@ if sys.platform == "win32":
 
     _TH32CS_SNAPPROCESS = 0x00000002
     _SW_RESTORE = 9
+    _SW_MINIMIZE = 6
+    _SW_SHOW = 5
+    _SW_SHOWNORMAL = 1
     _INVALID_HANDLE_VALUE = -1
+    _HWND_TOP = 0
+    _HWND_TOPMOST = -1
+    _HWND_NOTOPMOST = -2
+    _SWP_NOMOVE = 0x0002
+    _SWP_NOSIZE = 0x0001
+    _SWP_SHOWWINDOW = 0x0040
 
     _kernel32 = ctypes.windll.kernel32
     _user32 = ctypes.windll.user32
+
+    _VK_MENU = 0x12  # Alt
+    _KEYEVENTF_KEYUP = 0x0002
+
+    _user32.keybd_event.argtypes = [
+        wintypes.BYTE,
+        wintypes.BYTE,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
 
     _kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
     _kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
     _kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
     _kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
     _user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
     _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
     _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.IsIconic.argtypes = [wintypes.HWND]
     _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    _user32.GetForegroundWindow.restype = wintypes.HWND
     _user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
     _user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+    _user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    _user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    _user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    _user32.SwitchToThisWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
 
     def _snapshot_processes() -> dict[int, tuple[int, str]]:
         """Snapshot the live process table: {pid: (ppid, exe_name_lower)}."""
@@ -174,6 +209,79 @@ if sys.platform == "win32":
             logger.exception("EnumWindows failed")
         return result
 
+    def _force_foreground(hwnd: int, pid: int) -> bool:
+        """Best-effort bring *hwnd* to the foreground on Windows.
+
+        SetForegroundWindow is blocked unless the caller is itself foreground
+        or has had recent user input. The backend (Python) doesn't qualify
+        when triggered from a browser click, so we layer several tricks:
+
+        1. AllowSetForegroundWindow on the target pid (in case Windows checks).
+        2. If minimized, ShowWindow(RESTORE); otherwise force a quick
+           MINIMIZE→RESTORE cycle, which counts as user-driven and sidesteps
+           the foreground lock.
+        3. AttachThreadInput to the current foreground thread so our call
+           is treated as coming from the same input queue.
+        4. BringWindowToTop + SetWindowPos(TOPMOST→NOTOPMOST) to also raise
+           Z-order even if focus is denied — this is the bit that makes the
+           window visually overlap the browser/office tab.
+        5. SwitchToThisWindow as a final fallback (semi-documented but
+           more permissive than SetForegroundWindow).
+        """
+        _user32.AllowSetForegroundWindow(pid)
+
+        if _user32.IsIconic(hwnd):
+            _user32.ShowWindow(hwnd, _SW_RESTORE)
+
+        # Fake an Alt keypress so Windows treats this call as user-driven and
+        # releases the foreground lock for the next SetForegroundWindow.
+        # Down + Up so no modifier stays stuck.
+        _user32.keybd_event(_VK_MENU, 0, 0, None)
+        _user32.keybd_event(_VK_MENU, 0, _KEYEVENTF_KEYUP, None)
+
+        _user32.SetWindowPos(
+            hwnd,
+            _HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_SHOWWINDOW,
+        )
+        _user32.SetWindowPos(
+            hwnd,
+            _HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_SHOWWINDOW,
+        )
+        _user32.BringWindowToTop(hwnd)
+
+        fg_hwnd = _user32.GetForegroundWindow()
+        fg_thread = _user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0
+        our_thread = _kernel32.GetCurrentThreadId()
+
+        attached = False
+        if fg_thread and fg_thread != our_thread:
+            attached = bool(_user32.AttachThreadInput(our_thread, fg_thread, True))
+
+        try:
+            ok = bool(_user32.SetForegroundWindow(hwnd))
+        finally:
+            if attached:
+                _user32.AttachThreadInput(our_thread, fg_thread, False)
+
+        if not ok:
+            try:
+                _user32.SwitchToThisWindow(hwnd, True)
+                ok = True
+            except Exception:
+                logger.debug("SwitchToThisWindow fallback failed", exc_info=True)
+
+        return ok
+
     def _focus_ancestor_with_window(start_pid: int, max_depth: int = 12) -> bool:
         """Walk up from start_pid; focus the first ancestor's window."""
         proc_table = _snapshot_processes()
@@ -190,9 +298,7 @@ if sys.platform == "win32":
             if pid in windows:
                 hwnd = windows[pid]
                 try:
-                    _user32.AllowSetForegroundWindow(pid)
-                    _user32.ShowWindow(hwnd, _SW_RESTORE)
-                    ok = bool(_user32.SetForegroundWindow(hwnd))
+                    ok = _force_foreground(hwnd, pid)
                     logger.info(
                         "focus chain=%s -> pid=%s hwnd=%s ok=%s",
                         chain,

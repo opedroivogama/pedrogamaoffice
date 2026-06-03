@@ -11,8 +11,8 @@ interface EventTypeStyle {
 }
 
 const DEFAULT_STYLES: EventTypeStyle = {
-  text: "text-slate-400",
-  badge: "bg-slate-500/20 text-slate-300 border-slate-500/40",
+  text: "text-jp-fg-muted",
+  badge: "bg-jp-surface-3/40 text-jp-fg border-jp-border-light/40",
 };
 
 const EVENT_TYPE_STYLES: Record<string, EventTypeStyle> = {
@@ -29,8 +29,8 @@ const EVENT_TYPE_STYLES: Record<string, EventTypeStyle> = {
     badge: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",
   },
   permission_request: {
-    text: "text-orange-400",
-    badge: "bg-orange-500/20 text-orange-300 border-orange-500/40",
+    text: "text-jp-gold-soft",
+    badge: "bg-jp-gold/20 text-jp-gold-soft border-jp-gold/40",
   },
   subagent_start: {
     text: "text-blue-400",
@@ -45,8 +45,8 @@ const EVENT_TYPE_STYLES: Record<string, EventTypeStyle> = {
     badge: "bg-green-500/20 text-green-300 border-green-500/40",
   },
   session_end: {
-    text: "text-slate-500",
-    badge: "bg-slate-500/20 text-slate-300 border-slate-500/40",
+    text: "text-jp-fg-dim",
+    badge: "bg-jp-surface-3/40 text-jp-fg border-jp-border-light/40",
   },
   stop: {
     text: "text-rose-400",

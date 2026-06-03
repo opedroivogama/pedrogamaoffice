@@ -7,6 +7,7 @@ import type {
   FloorConfig,
   TransitionDirection,
 } from "@/types/navigation";
+import { ALL_FLOOR_ID } from "@/types/navigation";
 
 // ============================================================================
 // TYPES
@@ -90,19 +91,23 @@ export const useNavigationStore = create<NavigationStore>()((set, get) => ({
 
   setBuildingConfig: (config) =>
     set((state) => {
-      // If config has floors, auto-switch to building view from single
+      // Booting: se há andares e ainda estamos no "single" inicial, vai direto
+      // pro andar virtual "todas as sessões" (ALL_FLOOR_ID) em vez do
+      // building view. É o "lugar mais útil de começar" — mostra tudo que
+      // está rolando agora sem o passo extra de selecionar um andar.
       const hasFloors = config.floors.length > 0;
       const currentView = state.view;
-      const newView: ViewMode =
-        currentView === "single" && hasFloors
-          ? "building"
-          : currentView === "single"
-            ? "single"
-            : currentView;
+      let newView: ViewMode = currentView;
+      let newFloorId: string | null = state.floorId;
+      if (currentView === "single" && hasFloors) {
+        newView = "floor";
+        newFloorId = ALL_FLOOR_ID;
+      }
       return {
         buildingConfig: config,
         isLoading: false,
         view: newView,
+        floorId: newFloorId,
       };
     }),
 

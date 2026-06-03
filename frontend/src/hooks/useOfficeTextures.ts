@@ -23,6 +23,7 @@ export interface OfficeTextures {
   monitor: Texture | null;
   phone: Texture | null;
   printer: Texture | null;
+  radio: Texture | null;
 
   // Elevator
   elevatorFrame: Texture | null;
@@ -63,6 +64,7 @@ const TEXTURE_PATHS: Record<keyof OfficeTextures, string> = {
   monitor: "/sprites/monitor_back.png",
   phone: "/sprites/phone.png",
   printer: "/sprites/old-printer.png",
+  radio: "/sprites/radio.png?v=4",
   elevatorFrame: "/sprites/elevator_frame.png",
   elevatorDoor: "/sprites/elevator_door.png",
   wallOutlet: "/sprites/wall-outlet.png",
@@ -90,6 +92,7 @@ const EMPTY_TEXTURES: OfficeTextures = {
   monitor: null,
   phone: null,
   printer: null,
+  radio: null,
   elevatorFrame: null,
   elevatorDoor: null,
   wallOutlet: null,

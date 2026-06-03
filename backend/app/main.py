@@ -15,7 +15,7 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import events, floors, preferences, sessions
+from app.api.routes import boss, chat, events, floors, launcher, preferences, sessions
 from app.api.websocket import (
     manager,
 )
@@ -131,6 +131,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await _migrate_schema(conn)
 
     await _reap_stale_sessions()
+    await _refresh_display_names_at_startup()
 
     from app.core.terminal_focus import warm_pid_cache_from_db
 
@@ -164,6 +165,38 @@ async def _reap_stale_sessions() -> None:
             reap_logger.info("Reaped %d stale sessions (inactive >48h)", count)
 
 
+async def _refresh_display_names_at_startup() -> None:
+    """Resync each session's display_name with its JSONL transcript on boot.
+
+    Handles the case where the visualizer was restarted while sessions had
+    titles that hadn't been written back to the DB yet (e.g. a `/rename`
+    happened during a previous run but `refresh-names` was never triggered).
+    Broadcast is disabled because there are no WebSocket clients yet.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.api.routes.sessions import refresh_display_names_from_transcripts
+
+    refresh_logger = logging.getLogger("claude-office.refresh-names")
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    async with session_factory() as db:
+        try:
+            scanned, updated, _ = await refresh_display_names_from_transcripts(
+                db, broadcast=False
+            )
+            if updated > 0:
+                refresh_logger.info(
+                    "Refreshed %d display name(s) from JSONL transcripts "
+                    "(scanned %d)",
+                    updated,
+                    scanned,
+                )
+        except Exception as exc:  # noqa: BLE001 — don't block startup on this
+            refresh_logger.warning(
+                "Skipped display-name refresh at startup: %s", exc
+            )
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -184,8 +217,11 @@ app.add_middleware(ApiKeyMiddleware)
 
 app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(launcher.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(chat.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(boss.router, prefix=f"{settings.API_V1_STR}")
 
 
 @app.get("/health")

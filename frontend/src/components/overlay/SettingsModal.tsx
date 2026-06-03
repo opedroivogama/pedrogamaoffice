@@ -49,12 +49,12 @@ function SettingsToggle({
           onChange();
         }
       }}
-      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800 border border-slate-700 cursor-pointer hover:border-slate-600 transition-colors"
+      className="flex items-center justify-between p-2.5 rounded-lg bg-jp-surface-2 border border-jp-divider cursor-pointer hover:border-jp-divider transition-colors"
     >
-      <span className="text-slate-300 text-sm">{label}</span>
+      <span className="text-jp-fg text-sm">{label}</span>
       <div
         className={`w-9 h-5 rounded-full relative transition-colors ${
-          checked ? "bg-purple-500" : "bg-slate-600"
+          checked ? "bg-purple-500" : "bg-jp-surface-3"
         }`}
       >
         <div
@@ -168,14 +168,14 @@ export default function SettingsModal({
       footer={
         <button
           onClick={onClose}
-          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
+          className="px-4 py-2 bg-jp-surface-3 hover:bg-jp-surface-3 text-white text-sm font-bold rounded-lg transition-colors"
         >
           {t("modal.close")}
         </button>
       }
     >
       {/* Tab bar */}
-      <div className="flex gap-1 mb-6 p-1 bg-slate-800/50 rounded-lg border border-slate-700">
+      <div className="flex gap-1 mb-6 p-1 bg-jp-surface-2/50 rounded-lg border border-jp-divider">
         {(["general", "building"] as const).map((tab) => (
           <button
             key={tab}
@@ -184,7 +184,7 @@ export default function SettingsModal({
             className={`flex-1 px-4 py-2 rounded-md text-sm font-bold transition-colors ${
               activeTab === tab
                 ? "bg-purple-500/20 border border-purple-500 text-purple-300"
-                : "bg-transparent border border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800"
+                : "bg-transparent border border-transparent text-jp-fg-muted hover:text-jp-fg hover:bg-jp-surface-2"
             }`}
           >
             {t(`settings.tabs.${tab}`)}
@@ -200,7 +200,7 @@ export default function SettingsModal({
         <div className="space-y-6">
           {/* Language */}
           <div>
-            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+            <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.language")}
             </label>
             <div
@@ -235,10 +235,10 @@ export default function SettingsModal({
                           (parent.children[next] as HTMLElement)?.focus();
                       }
                     }}
-                    className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                    className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-jp-gold focus-visible:ring-offset-2 focus-visible:ring-offset-jp-surface-1 outline-none ${
                       language === locale
                         ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                        : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                        : "bg-jp-surface-2 border-jp-divider text-jp-fg-muted hover:border-jp-divider"
                     }`}
                   >
                     {label}
@@ -250,7 +250,7 @@ export default function SettingsModal({
 
           {/* Clock Type */}
           <div>
-            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+            <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.clockType")}
             </label>
             <div
@@ -287,10 +287,10 @@ export default function SettingsModal({
                       buttons[nextIdx].focus();
                     }
                   }}
-                  className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                  className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-jp-gold focus-visible:ring-offset-2 focus-visible:ring-offset-jp-surface-1 outline-none ${
                     clockType === type
                       ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                      : "bg-jp-surface-2 border-jp-divider text-jp-fg-muted hover:border-jp-divider"
                   }`}
                 >
                   {type === "analog"
@@ -304,7 +304,7 @@ export default function SettingsModal({
           {/* Time Format - only visible when digital */}
           {clockType === "digital" && (
             <div>
-              <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+              <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
                 {t("settings.timeFormat")}
               </label>
               <div
@@ -341,10 +341,10 @@ export default function SettingsModal({
                         buttons[nextIdx].focus();
                       }
                     }}
-                    className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                    className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-jp-gold focus-visible:ring-offset-2 focus-visible:ring-offset-jp-surface-1 outline-none ${
                       clockFormat === fmt
                         ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                        : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                        : "bg-jp-surface-2 border-jp-divider text-jp-fg-muted hover:border-jp-divider"
                     }`}
                   >
                     {fmt === "12h"
@@ -357,8 +357,8 @@ export default function SettingsModal({
           )}
 
           {/* Session Settings */}
-          <div className="pt-4 border-t border-slate-800">
-            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+          <div className="pt-4 border-t border-jp-divider-soft">
+            <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.sessionBehavior")}
             </label>
             <div
@@ -373,19 +373,19 @@ export default function SettingsModal({
                   handleAutoFollowToggle();
                 }
               }}
-              className="flex items-center justify-between p-3 rounded-lg bg-slate-800 border border-slate-700 cursor-pointer hover:border-slate-600 transition-colors"
+              className="flex items-center justify-between p-3 rounded-lg bg-jp-surface-2 border border-jp-divider cursor-pointer hover:border-jp-divider transition-colors"
             >
               <div>
-                <p className="text-slate-300 text-sm font-medium">
+                <p className="text-jp-fg text-sm font-medium">
                   {t("settings.autoFollow")}
                 </p>
-                <p className="text-slate-500 text-xs mt-0.5">
+                <p className="text-jp-fg-dim text-xs mt-0.5">
                   {t("settings.autoFollowDesc")}
                 </p>
               </div>
               <div
                 className={`w-11 h-6 rounded-full relative transition-colors ${
-                  autoFollowNewSessions ? "bg-purple-500" : "bg-slate-600"
+                  autoFollowNewSessions ? "bg-purple-500" : "bg-jp-surface-3"
                 }`}
               >
                 <div
@@ -398,8 +398,8 @@ export default function SettingsModal({
           </div>
 
           {/* Attention Settings */}
-          <div className="pt-4 border-t border-slate-800">
-            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+          <div className="pt-4 border-t border-jp-divider-soft">
+            <label className="block text-jp-fg-muted text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.toastFilters")}
             </label>
             <div className="space-y-2">
@@ -441,8 +441,8 @@ export default function SettingsModal({
           </div>
 
           {/* Tip */}
-          <div className="pt-4 border-t border-slate-800">
-            <p className="text-slate-500 text-xs">{t("settings.clockTip")}</p>
+          <div className="pt-4 border-t border-jp-divider-soft">
+            <p className="text-jp-fg-dim text-xs">{t("settings.clockTip")}</p>
           </div>
         </div>
       ) : (

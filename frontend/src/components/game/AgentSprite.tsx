@@ -7,9 +7,16 @@
 
 "use client";
 
-import { memo, useMemo, useState, useCallback, type ReactNode } from "react";
+import {
+  memo,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useTick } from "@pixi/react";
-import { Graphics, TextStyle, Texture } from "pixi.js";
+import { Graphics, TextStyle, Texture, Rectangle } from "pixi.js";
 import type { Position, BubbleContent } from "@/types";
 import type { AgentPhase } from "@/stores/gameStore";
 import { useAttentionStore } from "@/stores/attentionStore";
@@ -18,7 +25,10 @@ import { isInElevatorZone } from "@/systems/queuePositions";
 import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
+import { drawChibi } from "./shared/drawChibi";
 import { truncateBubbleText } from "@/utils/bubbleText";
+import { useGameStore } from "@/stores/gameStore";
+import { Plumbob } from "./Plumbob";
 
 // ============================================================================
 // TYPES
@@ -34,6 +44,20 @@ export interface AgentSpriteProps {
   bubble: BubbleContent | null;
   headsetTexture?: Texture | null;
   sunglassesTexture?: Texture | null;
+  characterTexture?: Texture | null;
+  characterTypingTexture?: Texture | null;
+  characterTypingEyeLeftTexture?: Texture | null;
+  characterStepLeftTexture?: Texture | null;
+  characterStepRightTexture?: Texture | null;
+  characterSideIdleTexture?: Texture | null;
+  characterSideStep1Texture?: Texture | null;
+  characterSideStep2Texture?: Texture | null;
+  characterBackIdleTexture?: Texture | null;
+  characterBackStep1Texture?: Texture | null;
+  characterBackStep2Texture?: Texture | null;
+  characterIdleFrames?: (Texture | null)[] | null; // optional breathing-idle frames cycled when standing still (overrides characterTexture).
+  characterRenderSize?: number; // visual size in px (default 128). Bump for sources with empty canvas padding (e.g. PixelLab 240 sprites).
+  characterFeetOffsetY?: number; // px to shift sprite DOWN to compensate for empty canvas padding below the character's feet. Default 0 for tight sources, ~60 for PixelLab 240.
   renderBubble?: boolean; // Whether to render bubble (default true)
   renderLabel?: boolean; // Whether to render name label (default true)
   isTyping?: boolean; // Whether agent is typing (animates arms)
@@ -54,24 +78,23 @@ const STROKE_WIDTH = 4;
 function drawAgent(g: Graphics, color: string): void {
   g.clear();
 
-  // Convert hex color string to number
   const colorNum = parseInt(color.replace("#", ""), 16) || 0xff6b6b;
 
-  // Agent body (colored capsule with white border)
-  // Position is at CENTER OF BOTTOM CIRCLE, so capsule extends from -54 to +22
-  // Inset by half stroke width so total size matches AGENT_WIDTH × AGENT_HEIGHT
-  const innerWidth = AGENT_WIDTH - STROKE_WIDTH;
-  const innerHeight = AGENT_HEIGHT - STROKE_WIDTH;
-  const agentRadius = innerWidth / 2; // 22px - radius of top/bottom circles
-  g.roundRect(
-    -innerWidth / 2,
-    -innerHeight + agentRadius, // Bottom circle center at y=0
-    innerWidth,
-    innerHeight,
-    agentRadius,
-  );
-  g.fill(colorNum);
-  g.stroke({ width: STROKE_WIDTH, color: 0xffffff });
+  // Chibi/Pokemon-GBA style. Anchor: y=0 is center of bottom circle of the
+  // legacy capsule (i.e. feet rest around y=+22). Keep this anchor so headset,
+  // sunglasses, bubble and arm positions stay aligned.
+  drawChibi(g, {
+    shirtColor: colorNum,
+    hairColor: pickHairColor(color),
+    feetY: 22,
+  });
+}
+
+function pickHairColor(seed: string): number {
+  const palette = [0x2c1810, 0x3b2218, 0x6b3410, 0x4a2c12, 0x1a1a1a, 0x8b4513];
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  return palette[Math.abs(hash) % palette.length];
 }
 
 // ============================================================================
@@ -81,11 +104,14 @@ function drawAgent(g: Graphics, color: string): void {
 interface BubbleProps {
   content: BubbleContent;
   yOffset: number;
+  /** Override the default 60-char truncation. Used by Pedro/user bubbles
+   *  which can hold longer prompts than agent/boss chatter. */
+  maxChars?: number;
 }
 
-function Bubble({ content, yOffset }: BubbleProps): ReactNode {
+function Bubble({ content, yOffset, maxChars }: BubbleProps): ReactNode {
   const { type = "thought", icon } = content;
-  const text = truncateBubbleText(content.text);
+  const text = truncateBubbleText(content.text, maxChars);
 
   // Convert icon name to emoji if needed
   const iconEmoji = icon ? (ICON_MAP[icon] ?? icon) : undefined;
@@ -93,29 +119,31 @@ function Bubble({ content, yOffset }: BubbleProps): ReactNode {
   // Icon badge constants
   const badgeRadius = 16; // Radius of the circular badge
 
-  // Calculate bubble dimensions (at display scale) - icon is outside bubble now
-  const charWidth = 7.5;
-  const paddingH = 30;
-  const maxW = 220;
+  // Dimensões -20% (pedido do Pedro). Igual ao BossSprite, mas maxW maior
+  // porque o bubble do Pedro carrega prompts até 300 chars.
+  const charWidth = 8;
+  const paddingH = 32;
+  const maxW = 368;
   const rawWidth = text.length * charWidth + paddingH;
-  const bWidth = Math.min(maxW, Math.max(80, rawWidth));
+  const bWidth = Math.min(maxW, Math.max(88, rawWidth));
   const capacity = (bWidth - paddingH) / charWidth;
   const lines = Math.max(1, Math.ceil(text.length / capacity));
-  const bHeight = 35 + lines * 14;
+  const bHeight = 35 + lines * 16;
 
-  // Text style at 2x for sharp rendering
+  // Montserrat 700 + letter-spacing pra legibilidade clara à distância.
   const textStyle = useMemo<Partial<TextStyle>>(
     () => ({
       fontFamily:
-        '"Courier New", Courier, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace',
-      fontSize: 20,
-      fill: "#000000",
-      fontWeight: "bold",
+        '"Montserrat", "Segoe UI", system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
+      fontSize: 27,
+      fill: "#0e0e0e",
+      fontWeight: "700",
+      letterSpacing: 0.3,
       wordWrap: true,
       wordWrapWidth: (bWidth - 30) * 2,
       breakWords: true,
       align: "left",
-      lineHeight: 28,
+      lineHeight: 32,
       stroke: { width: 0, color: 0x000000 },
     }),
     [bWidth],
@@ -176,12 +204,150 @@ function AgentSpriteComponent({
   bubble,
   headsetTexture: _headsetTexture,
   sunglassesTexture,
+  characterTexture,
+  characterTypingTexture,
+  characterTypingEyeLeftTexture,
+  characterStepLeftTexture,
+  characterStepRightTexture,
+  characterSideIdleTexture,
+  characterSideStep1Texture,
+  characterSideStep2Texture,
+  characterBackIdleTexture,
+  characterBackStep1Texture,
+  characterBackStep2Texture,
+  characterIdleFrames,
+  characterRenderSize = 128,
+  characterFeetOffsetY = 0,
   renderBubble = true,
   renderLabel = true,
-  isTyping: _isTyping = false,
+  isTyping = false,
 }: AgentSpriteProps): ReactNode {
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
+  const isControlled = useGameStore((s) => s.controlledEntityId === id);
+
+  const typingYOffset = isTyping ? 14 : 0;
+
+  // Walk-bob: when position changes between frames, the character "hops" with
+  // a sinusoidal step rhythm. No bob when typing (sitting at desk).
+  // Source positions update at ~25 Hz while useTick runs at ~60 Hz, so most
+  // ticks see zero delta. A still-tick grace period keeps the walk cycle live
+  // across those gaps; without it walkPhase resets every other tick and only
+  // idle frames ever render.
+  const prevPosRef = useRef(position);
+  const stillTicksRef = useRef(0);
+  const [walkPhase, setWalkPhase] = useState(0);
+  const [idlePhase, setIdlePhase] = useState(0);
+  const [isMoving, setIsMoving] = useState(false);
+  const [moveDir, setMoveDir] = useState<"down" | "up" | "horizontal">("down");
+  // facing=1 → sprite drawn as-is (side sprites are authored facing LEFT, so
+  // this matches movement to the left). facing=-1 → scale.x mirrors the sprite
+  // so it faces right when travel is rightward.
+  const [facing, setFacing] = useState<1 | -1>(1);
+  useTick((ticker) => {
+    const prev = prevPosRef.current;
+    const dx = position.x - prev.x;
+    const dy = position.y - prev.y;
+    const speed = Math.sqrt(dx * dx + dy * dy);
+    if (speed > 0.1 && !isTyping) {
+      stillTicksRef.current = 0;
+      if (!isMoving) setIsMoving(true);
+      setWalkPhase((p) => p + ticker.deltaTime * 0.3);
+      const nextDir: "down" | "up" | "horizontal" =
+        Math.abs(dx) > Math.abs(dy)
+          ? "horizontal"
+          : dy < 0
+            ? "up"
+            : "down";
+      if (nextDir !== moveDir) setMoveDir(nextDir);
+      if (Math.abs(dx) > 0.5) {
+        const nextFacing: 1 | -1 = dx > 0 ? -1 : 1;
+        if (nextFacing !== facing) setFacing(nextFacing);
+      }
+    } else if (isMoving) {
+      stillTicksRef.current += 1;
+      // ~10 ticks ≈ 165 ms grace at 60 fps — covers the gap between 25 Hz
+      // position updates while still ending the cycle promptly on real stops.
+      if (stillTicksRef.current < 10) {
+        setWalkPhase((p) => p + ticker.deltaTime * 0.3);
+      } else {
+        setIsMoving(false);
+        setWalkPhase(0);
+        stillTicksRef.current = 0;
+      }
+    } else {
+      // Accumulate idle phase when standing still + not typing — drives breathing.
+      if (!isTyping) setIdlePhase((p) => p + ticker.deltaTime * 0.05);
+    }
+    prevPosRef.current = position;
+  });
+  // Half-rectified sine → upward hops at ~3 steps/sec, amplitude 2 px.
+  const walkBobY = isMoving ? -Math.abs(Math.sin(walkPhase)) * 2 : 0;
+
+  // Walk frame cycling: when moving, alternate idle → step1 → idle → step2
+  // about every 220 ms (Math.floor(walkPhase * 0.25) cycles 0-3).
+  const walkFrameIndex = isMoving ? Math.floor(walkPhase * 0.25) % 4 : 0;
+  // Breathing-idle cycle when standing still + not typing and idle frames provided.
+  const validIdleFrames = characterIdleFrames?.filter(
+    (t): t is Texture => t != null,
+  );
+  const idleFrameIndex =
+    validIdleFrames && validIdleFrames.length > 0
+      ? Math.floor(idlePhase * 1.5) % validIdleFrames.length
+      : 0;
+  const baseIdleTexture =
+    isTyping && characterTypingTexture
+      ? characterTypingTexture
+      : !isMoving && validIdleFrames && validIdleFrames.length > 0
+        ? validIdleFrames[idleFrameIndex]
+        : characterTexture;
+  let activeTexture: Texture | null | undefined = baseIdleTexture;
+  if (isMoving && !isTyping) {
+    if (moveDir === "horizontal" && characterSideIdleTexture) {
+      // Side-view walk cycle
+      if (walkFrameIndex === 1 && characterSideStep1Texture)
+        activeTexture = characterSideStep1Texture;
+      else if (walkFrameIndex === 3 && characterSideStep2Texture)
+        activeTexture = characterSideStep2Texture;
+      else activeTexture = characterSideIdleTexture;
+    } else if (moveDir === "up" && characterBackIdleTexture) {
+      // Back-view walk cycle
+      if (walkFrameIndex === 1 && characterBackStep1Texture)
+        activeTexture = characterBackStep1Texture;
+      else if (walkFrameIndex === 3 && characterBackStep2Texture)
+        activeTexture = characterBackStep2Texture;
+      else activeTexture = characterBackIdleTexture;
+    } else {
+      // Down (front-facing) walk cycle
+      if (walkFrameIndex === 1 && characterStepLeftTexture)
+        activeTexture = characterStepLeftTexture;
+      else if (walkFrameIndex === 3 && characterStepRightTexture)
+        activeTexture = characterStepRightTexture;
+      else activeTexture = characterTexture;
+    }
+  }
+
+  // Seated crop: when typing at desk, render only the top portion (head +
+  // chest + waist) so the legs/feet don't peek below the desk. Proportional to
+  // source dimensions so it works for both 128px chrome dummies and 240px
+  // PixelLab sprites (~66% of height keeps head+chest+waist).
+  const SEATED_CROP_RATIO = 85 / 128;
+  const seatedTexture = useMemo(() => {
+    const src = characterTypingTexture ?? characterTexture;
+    if (!src) return null;
+    const w = src.source.width;
+    const h = src.source.height;
+    return new Texture({
+      source: src.source,
+      frame: new Rectangle(0, 0, w, Math.round(h * SEATED_CROP_RATIO)),
+    });
+  }, [characterTypingTexture, characterTexture]);
+  const seatedRenderHeight = characterRenderSize * SEATED_CROP_RATIO;
+
+  // No drop shadow — pixel art chibi reads cleaner without one.
+  const drawShadow = useCallback((g: Graphics) => {
+    g.clear();
+  }, []);
 
   // Memoize draw callback
   const drawCallback = useMemo(
@@ -211,8 +377,36 @@ function AgentSpriteComponent({
       onPointerTap={handlePointerTap}
       interactive={clickToFocusEnabled}
     >
-      {/* Agent capsule body */}
-      <pixiGraphics draw={drawCallback} />
+      {/* Drop shadow under the agent's feet (always on, behind body). */}
+      <pixiGraphics draw={drawShadow} />
+
+      {/* Agent body — static when idle/typing, hop-bobs when walking.
+          Wrapped in a flip container so the sprite faces direction of travel.
+          When isTyping, use the cropped texture (waist up only) so legs are
+          hidden behind the desk → looks "seated". */}
+      <pixiContainer scale={{ x: facing, y: 1 }}>
+        {isTyping && seatedTexture ? (
+          <pixiSprite
+            texture={seatedTexture}
+            anchor={{ x: 0.5, y: 1 }}
+            x={0}
+            y={22 + characterFeetOffsetY + typingYOffset - (characterRenderSize - seatedRenderHeight)}
+            width={characterRenderSize}
+            height={seatedRenderHeight}
+          />
+        ) : activeTexture ? (
+          <pixiSprite
+            texture={activeTexture}
+            anchor={{ x: 0.5, y: 1 }}
+            x={0}
+            y={22 + characterFeetOffsetY + typingYOffset + walkBobY}
+            width={characterRenderSize}
+            height={characterRenderSize}
+          />
+        ) : (
+          <pixiGraphics draw={drawCallback} />
+        )}
+      </pixiContainer>
 
       {/* Sunglasses */}
       {sunglassesTexture && (
@@ -247,6 +441,9 @@ function AgentSpriteComponent({
       {renderBubble && bubble && !isInElevatorZone(position) && (
         <Bubble content={bubble} yOffset={bubbleOffset} />
       )}
+
+      {/* Sims-style plumbob — only renders when this agent is being driven. */}
+      {isControlled && <Plumbob y={-100} />}
     </pixiContainer>
   );
 }
@@ -349,19 +546,20 @@ export interface AgentLabelProps {
 }
 
 function AgentLabelComponent({ name, position }: AgentLabelProps): ReactNode {
+  // Floating name only — no pill background (reserved for player avatars).
   return (
-    <pixiContainer x={position.x} y={position.y - 70} scale={0.5}>
+    <pixiContainer x={position.x} y={position.y - 72}>
       <pixiText
         text={name}
         anchor={0.5}
+        resolution={2}
         style={{
           fontFamily: "monospace",
-          fontSize: 24,
+          fontSize: 16,
           fill: 0xffffff,
           fontWeight: "bold",
-          stroke: { width: 4, color: 0x000000 },
+          stroke: { width: 3, color: 0x000000 },
         }}
-        resolution={2}
       />
     </pixiContainer>
   );

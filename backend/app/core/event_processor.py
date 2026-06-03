@@ -915,16 +915,16 @@ class EventProcessor:
             A human-readable summary string.
         """
         if not event.data:
-            return f"{event.event_type} event received"
+            return f"Evento {event.event_type} recebido"
 
         data = event.data
         match event.event_type:
             case EventType.SESSION_START:
-                return "Claude Office session started"
+                return "Sessão Claude iniciada"
             case EventType.SESSION_END:
-                return "Claude Office session ended"
+                return "Sessão Claude encerrada"
             case EventType.PRE_TOOL_USE:
-                tool = data.tool_name or "Unknown tool"
+                tool = data.tool_name or "Ferramenta desconhecida"
                 target = ""
                 if data.tool_input:
                     target = (
@@ -932,66 +932,66 @@ class EventProcessor:
                     )
                     if len(target) > 30:
                         target = f"...{target[-27:]}"
-                return f"Using {tool} {target}".strip()
+                return f"Usando {tool} {target}".strip()
             case EventType.POST_TOOL_USE:
-                return f"Completed {data.tool_name or 'tool'}"
+                return f"Concluiu {data.tool_name or 'ferramenta'}"
             case EventType.USER_PROMPT_SUBMIT:
                 prompt = data.prompt or ""
                 if len(prompt) > 40:
                     prompt = f"{prompt[:37]}..."
-                return f"User: {prompt}" if prompt else "User submitted prompt"
+                return f"Pedro: {prompt}" if prompt else "Pedro enviou um pedido"
             case EventType.PERMISSION_REQUEST:
-                tool = data.tool_name or "tool"
-                return f"Waiting for permission: {tool}"
+                tool = data.tool_name or "ferramenta"
+                return f"Aguardando permissão: {tool}"
             case EventType.SUBAGENT_START:
-                return f"Spawned subagent: {data.agent_name or data.agent_id}"
+                return f"Subagente convocado: {data.agent_name or data.agent_id}"
             case EventType.SUBAGENT_STOP:
                 # Native SubagentStop hook only sets native_agent_id; fall back to it,
                 # and default success=True when neither agent_id nor explicit failure marker
                 # is present (native hook fires on success).
                 aid = data.agent_id or (
-                    f"subagent_{data.native_agent_id}" if data.native_agent_id else "unknown"
+                    f"subagent_{data.native_agent_id}" if data.native_agent_id else "desconhecido"
                 )
-                status = "successfully" if (data.success or data.success is None) else "with errors"
-                return f"Subagent {aid} finished {status}"
+                status = "com sucesso" if (data.success or data.success is None) else "com erros"
+                return f"Subagente {aid} terminou {status}"
             case EventType.STOP:
-                return "Main agent task complete"
+                return "Claude concluiu a tarefa"
             case EventType.CLEANUP:
-                return f"Agent {data.agent_id} left the building"
+                return f"Agente {data.agent_id} saiu do escritório"
             case EventType.NOTIFICATION:
-                return f"Notification: {data.message or data.notification_type or 'info'}"
+                return f"Notificação: {data.message or data.notification_type or 'info'}"
             case EventType.REPORTING:
-                return f"Agent {data.agent_id or 'unknown'} reporting"
+                return f"Agente {data.agent_id or 'desconhecido'} reportando"
             case EventType.WALKING_TO_DESK:
-                return f"Agent {data.agent_id or 'unknown'} walking to desk"
+                return f"Agente {data.agent_id or 'desconhecido'} indo pra mesa"
             case EventType.WAITING:
-                return f"Agent {data.agent_id or 'unknown'} waiting in queue"
+                return f"Agente {data.agent_id or 'desconhecido'} esperando na fila"
             case EventType.LEAVING:
-                return f"Agent {data.agent_id or 'unknown'} leaving"
+                return f"Agente {data.agent_id or 'desconhecido'} saindo"
             case EventType.ERROR:
-                return f"Error: {data.message or 'unknown error'}"
+                return f"Erro: {data.message or 'erro desconhecido'}"
             case EventType.BACKGROUND_TASK_NOTIFICATION:
-                task_id = data.background_task_id or "unknown"
-                status = data.background_task_status or "completed"
+                task_id = data.background_task_id or "desconhecido"
+                status = data.background_task_status or "concluída"
                 summary = data.background_task_summary or ""
                 task_id_short = task_id[:7] if len(task_id) > 7 else task_id
                 summary_short = (summary[:40] + "...") if len(summary) > 40 else summary
-                return f"Background task {task_id_short} {status}: {summary_short}"
+                return f"Tarefa em background {task_id_short} {status}: {summary_short}"
             case EventType.TASK_CREATED:
-                subject = data.task_subject or data.task_id or "unknown"
+                subject = data.task_subject or data.task_id or "desconhecido"
                 if len(subject) > 50:
                     subject = f"{subject[:47]}..."
-                return f"Task created: {subject}"
+                return f"Tarefa criada: {subject}"
             case EventType.TASK_COMPLETED:
-                subject = data.task_subject or data.task_id or "unknown"
+                subject = data.task_subject or data.task_id or "desconhecido"
                 if len(subject) > 50:
                     subject = f"{subject[:47]}..."
-                return f"Task completed: {subject}"
+                return f"Tarefa concluída: {subject}"
             case EventType.TEAMMATE_IDLE:
-                name = data.teammate_name or "Teammate"
-                return f"{name} went idle"
+                name = data.teammate_name or "Colega"
+                return f"{name} ficou ocioso"
             case _:
-                return f"Event: {event.event_type}"
+                return f"Evento: {event.event_type}"
 
 
 event_processor = EventProcessor()

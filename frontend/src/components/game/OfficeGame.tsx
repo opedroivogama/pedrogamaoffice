@@ -18,8 +18,19 @@ import {
   Graphics,
   Sprite,
   Application as PixiApplication,
+  Texture,
+  Rectangle,
+  type FederatedPointerEvent,
 } from "pixi.js";
-import { useMemo, useEffect, useRef, useCallback, type ReactNode } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { useTick } from "@pixi/react";
 import {
   TransformWrapper,
   TransformComponent,
@@ -46,6 +57,18 @@ import {
 import { useAnimationSystem } from "@/systems/animationSystem";
 import { useCompactionAnimation } from "@/systems/compactionAnimation";
 import { useOfficeTextures } from "@/hooks/useOfficeTextures";
+import { useDefaultCharacterTexture } from "@/hooks/useCharacterSprites";
+import { useSimulationStatus } from "@/hooks/useSimulationStatus";
+import {
+  usePedroSprites,
+  directionFromDelta,
+  type PedroDirectionalTextures,
+  type PedroDirectionalWalkFrames,
+  type Direction8,
+} from "@/hooks/usePedroSprites";
+import { useAttentionStore } from "@/stores/attentionStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
+import { Plumbob } from "@/components/game/Plumbob";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -62,6 +85,7 @@ import {
   COFFEE_MACHINE_POSITION,
   PRINTER_STATION_POSITION,
   PLANT_POSITION,
+  RADIO_POSITION,
   BOSS_RUG_POSITION,
   TRASH_CAN_OFFSET,
 } from "@/constants/positions";
@@ -72,10 +96,25 @@ import {
   AgentLabel,
   Bubble as AgentBubble,
 } from "./AgentSprite";
-import { BossSprite, BossBubble, MobileBoss } from "./BossSprite";
+import {
+  BossSprite,
+  BossBubble,
+  MobileBoss,
+  WorkIndicator,
+  CLAUDIUS_WORK_INDICATOR_GAP,
+} from "./BossSprite";
+import { ICON_MAP } from "./shared/iconMap";
 import { useNavigationStore } from "@/stores/navigationStore";
-import { LOBBY_FLOOR_ID } from "@/types/navigation";
-import { ELEVATOR_POSITION, isInElevatorZone } from "@/systems/queuePositions";
+import { ALL_FLOOR_ID, LOBBY_FLOOR_ID } from "@/types/navigation";
+import {
+  BOSS_POSITION,
+  ELEVATOR_POSITION,
+  isInElevatorZone,
+} from "@/systems/queuePositions";
+import {
+  findNearestChair,
+  SEATED_CROP_RATIO,
+} from "@/constants/chairs";
 import { TrashCanSprite } from "./TrashCanSprite";
 import { WallClock } from "./WallClock";
 import { Whiteboard } from "./Whiteboard";
@@ -84,7 +123,15 @@ import { CityWindow } from "./CityWindow";
 import { EmployeeOfTheMonth } from "./EmployeeOfTheMonth";
 import { Elevator, isAgentInElevator } from "./Elevator";
 import { PrinterStation } from "./PrinterStation";
+import { RadioSprite } from "./RadioSprite";
 import { DebugOverlays } from "./DebugOverlays";
+import { CollisionEditor, type PaintMode } from "./CollisionEditor";
+import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
+import { shouldIgnoreShortcut } from "@/utils/shortcutGate";
+import { calculatePath } from "@/systems/pathfinding";
+import { useChunkedBubble } from "@/hooks/useChunkedBubble";
+import { ClickToMovePath } from "./ClickToMovePath";
+import type { Position } from "@/types";
 import {
   DeskSurfacesBase,
   DeskSurfacesTop,
@@ -172,6 +219,543 @@ function FloorSign({
 }
 
 // ============================================================================
+// FLOATING ICON — transient emoji rising from a character on tool events
+// ============================================================================
+
+interface FloatingIconProps {
+  x: number;
+  y: number;
+  icon: string;
+  onDone: () => void;
+}
+
+function FloatingIcon({ x, y, icon, onDone }: FloatingIconProps): ReactNode {
+  const [age, setAge] = useState(0);
+  const doneRef = useRef(false);
+  useTick((ticker) => {
+    if (doneRef.current) return;
+    setAge((a) => {
+      const next = a + ticker.deltaMS / 1400;
+      if (next >= 1 && !doneRef.current) {
+        doneRef.current = true;
+        onDone();
+      }
+      return next;
+    });
+  });
+  if (age >= 1) return null;
+  return (
+    <pixiContainer x={x} y={y - 40 - age * 32} alpha={1 - age}>
+      <pixiText
+        text={icon}
+        anchor={0.5}
+        resolution={2}
+        style={{ fontSize: 24 }}
+      />
+    </pixiContainer>
+  );
+}
+
+// ============================================================================
+// WANDERING BOSS — Claude se afastando da mesa
+// ============================================================================
+
+interface WanderingBossProps {
+  position: { x: number; y: number };
+  textures: {
+    idle: Texture | null;
+    stepLeft: Texture | null;
+    stepRight: Texture | null;
+    sideIdle: Texture | null;
+    sideStep1: Texture | null;
+    sideStep2: Texture | null;
+    backIdle: Texture | null;
+    backStep1: Texture | null;
+    backStep2: Texture | null;
+  };
+  /** Breathing-idle frames for the south direction. Cycled when standing still
+   *  facing south. Other directions fall back to static idle. */
+  idleFrames?: (Texture | null)[] | null;
+  tint?: number;
+}
+
+function WanderingBoss({
+  position,
+  textures,
+  idleFrames,
+  tint = 0xffffff,
+}: WanderingBossProps): ReactNode {
+  // Subscribe ao backendState pra mostrar o WorkIndicator (⚔️🔨🛡️)
+  // acima da badge mesmo quando Claudius está andando.
+  const bossBackendState = useGameStore((s) => s.boss.backendState);
+  const isWorking =
+    bossBackendState === "working" ||
+    bossBackendState === "delegating" ||
+    bossBackendState === "receiving";
+
+  const prevPosRef = useRef<{ x: number; y: number } | null>(null);
+  const lastMoveTsRef = useRef<number>(0);
+  const [facing, setFacing] = useState<"south" | "north" | "east" | "west">(
+    "south",
+  );
+  const [frameIdx, setFrameIdx] = useState(0);
+  const [isMoving, setIsMoving] = useState(false);
+  const [idleTime, setIdleTime] = useState(0);
+
+  // Rotate-only override from Shift+arrow while the boss is being controlled.
+  // When set, takes precedence over the delta-detected facing below.
+  const bossFacingOverride = useGameStore((s) => s.bossFacing);
+
+  useEffect(() => {
+    const prev = prevPosRef.current;
+    prevPosRef.current = { x: position.x, y: position.y };
+    if (!prev) return;
+    const dx = position.x - prev.x;
+    const dy = position.y - prev.y;
+    if (Math.hypot(dx, dy) < 0.5) return;
+    lastMoveTsRef.current = performance.now();
+    // Resolve to 4 cardinal directions.
+    if (Math.abs(dx) > Math.abs(dy)) {
+      setFacing(dx > 0 ? "east" : "west");
+    } else {
+      setFacing(dy > 0 ? "south" : "north");
+    }
+  }, [position]);
+
+  useTick((ticker) => {
+    const now = performance.now();
+    const moving = now - lastMoveTsRef.current < 120;
+    if (moving !== isMoving) setIsMoving(moving);
+    if (moving) setFrameIdx((idx) => idx + ticker.deltaMS / 160);
+    // Idle breathing accumulator runs whenever standing still — same cadence
+    // as the seated BossSprite (~660ms per frame at 4-frame cycle).
+    if (!moving) setIdleTime((t) => t + ticker.deltaTime * 0.05);
+  });
+
+  // Effective facing: prefer the explicit override (Shift+arrow), fall back
+  // to the delta-detected local state.
+  const effectiveFacing = bossFacingOverride ?? facing;
+
+  // Choose texture + horizontal flip per direction.
+  let texture: Texture | null = textures.idle;
+  let flipX = false;
+  if (effectiveFacing === "south") {
+    const cycle = [textures.idle, textures.stepLeft, textures.idle, textures.stepRight];
+    if (isMoving) {
+      texture = cycle[Math.floor(frameIdx) % cycle.length] ?? textures.idle;
+    } else {
+      // Cycle breathing-idle frames when standing still facing south.
+      const validIdle = idleFrames?.filter((t): t is Texture => t != null);
+      if (validIdle && validIdle.length > 0) {
+        texture = validIdle[Math.floor(idleTime * 1.5) % validIdle.length];
+      } else {
+        texture = textures.idle;
+      }
+    }
+  } else if (effectiveFacing === "north") {
+    const cycle = [textures.backIdle, textures.backStep1, textures.backIdle, textures.backStep2];
+    texture = isMoving
+      ? cycle[Math.floor(frameIdx) % cycle.length] ?? textures.backIdle
+      : textures.backIdle;
+  } else {
+    // east / west — use side frames, flip horizontally for west
+    const cycle = [textures.sideIdle, textures.sideStep1, textures.sideIdle, textures.sideStep2];
+    texture = isMoving
+      ? cycle[Math.floor(frameIdx) % cycle.length] ?? textures.sideIdle
+      : textures.sideIdle;
+    flipX = effectiveFacing === "west";
+  }
+
+  if (!texture) return null;
+
+  // Auto-seated: if the wandering boss is parked at any chair, render the
+  // cropped (waist-up) sprite at that chair so it looks like he's sitting.
+  const chair = findNearestChair(position, 30);
+  const seatedTexture = useMemo(() => {
+    if (!chair || !texture) return null;
+    const src = texture.source;
+    return new Texture({
+      source: src,
+      frame: new Rectangle(
+        0,
+        0,
+        src.width,
+        Math.round(src.height * SEATED_CROP_RATIO),
+      ),
+    });
+  }, [chair, texture]);
+
+  if (chair && seatedTexture) {
+    const seatedHeight = 128 * SEATED_CROP_RATIO;
+    return (
+      <pixiContainer
+        x={chair.x}
+        y={chair.deskTopY}
+        zIndex={chair.deskTopY - 1}
+      >
+        <pixiSprite
+          texture={seatedTexture}
+          anchor={{ x: 0.5, y: 1 }}
+          x={0}
+          y={0}
+          width={128}
+          height={seatedHeight}
+          tint={tint}
+        />
+        <pixiContainer y={-seatedHeight - 19}>
+          <pixiGraphics
+            draw={(g) => {
+              g.clear();
+              g.roundRect(-32, -10, 64, 18, 5);
+              g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+              g.stroke({ color: 0xb8972a, width: 1 });
+            }}
+          />
+          <pixiText
+            text="Claudius"
+            anchor={0.5}
+            resolution={2}
+            style={{
+              fontFamily: "monospace",
+              fontSize: 14,
+              fill: 0xfde7b0,
+              fontWeight: "bold",
+            }}
+          />
+        </pixiContainer>
+      </pixiContainer>
+    );
+  }
+
+  return (
+    <pixiContainer x={position.x} y={position.y} zIndex={position.y}>
+      <pixiSprite
+        texture={texture}
+        anchor={{ x: 0.5, y: 1 }}
+        x={0}
+        y={0}
+        width={128}
+        height={128}
+        scale={{ x: flipX ? -1 : 1, y: 1 }}
+        tint={tint}
+      />
+      {/* Badge "Claudius" — mesmo offset usado pela badge sentado em
+          BossSprite.tsx (y=-187), pra distância cabeça-pill consistente
+          entre andando e sentado. 3px mais perto da cabeça do que a versão
+          original (y=-190) a pedido do Pedro. */}
+      <pixiContainer y={-187}>
+        <pixiGraphics
+          draw={(g) => {
+            const label = "Claudius";
+            const pillW = Math.max(56, label.length * 11 + 20);
+            const pillH = 22;
+            g.clear();
+            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+            g.stroke({ color: 0xb8972a, width: 1.5 });
+          }}
+        />
+        <pixiText
+          text="Claudius"
+          anchor={0.5}
+          resolution={2}
+          style={{
+            fontFamily: "monospace",
+            fontSize: 18,
+            fill: 0xfde7b0,
+            fontWeight: "bold",
+          }}
+        />
+      </pixiContainer>
+      {/* WorkIndicator (⚔️🔨🛡️) — mesmo gap acima da badge usado em
+          BossSprite.tsx pra Claudius sentado. Mantém consistência visual
+          entre os dois estados. */}
+      {isWorking && (
+        <pixiContainer y={-187 - CLAUDIUS_WORK_INDICATOR_GAP} scale={0.5}>
+          <WorkIndicator />
+        </pixiContainer>
+      )}
+    </pixiContainer>
+  );
+}
+
+// ============================================================================
+// USER AVATAR (the person sending commands to Claude — stands in the corner)
+// ============================================================================
+
+interface UserAvatarProps {
+  /** Stable ID used for player control + popup focus (e.g. "pedro"). */
+  id: string;
+  texture: Texture | null;
+  label: string;
+  phase?: number;
+  /** Pixel y in source where head (skin/face) ends and shirt begins. */
+  neckline?: number;
+  /** Pixel y in source where shirt ends and pants begin. */
+  waist?: number;
+  /** Rendered sprite size in px (square). Default 128. Pedro's new sprite has
+   *  extra transparent padding so we render him at 256 to match the others. */
+  size?: number;
+  /** Ratio of transparent padding at the TOP of the source sprite (0..1).
+   *  Used to anchor the name pill just above the actual head instead of the
+   *  empty top of the canvas. Pedro's PEDRO/rotations/south.png is 228×228
+   *  with the head starting at y=58 → ratio ≈ 0.254. */
+  topPaddingRatio?: number;
+  /** Optional per-direction textures. When provided, the avatar swaps texture
+   *  based on movement direction; when idle, keeps the last facing. */
+  directionalTextures?: PedroDirectionalTextures;
+  /** Optional per-direction walk-cycle frames. When provided AND the avatar
+   *  is actively moving, cycle through these frames; otherwise fall back to
+   *  the idle directional texture. */
+  walkFrames?: PedroDirectionalWalkFrames;
+  /** Quando false, o balão de fala não é renderizado aqui — o caller desenha
+   *  numa layer top-level pra garantir que fica acima de outros personagens. */
+  renderBubble?: boolean;
+}
+
+// How long a Pedro/Estagiário speech bubble stays on screen (ms).
+const USER_AVATAR_BUBBLE_DURATION_MS = 6000;
+
+function UserAvatar({
+  id,
+  texture,
+  label,
+  size = 128,
+  topPaddingRatio = 0,
+  directionalTextures,
+  walkFrames,
+  renderBubble = true,
+}: UserAvatarProps): ReactNode {
+  const position = useGameStore((s) => s.userAvatarPositions.get(id));
+  const controlledEntityId = useGameStore((s) => s.controlledEntityId);
+  const bubbleText = useGameStore((s) => s.userAvatarBubbles.get(id));
+  const setUserAvatarBubble = useGameStore((s) => s.setUserAvatarBubble);
+  const facingOverride = useGameStore((s) => s.userAvatarFacings.get(id));
+  const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
+  const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
+
+  const isControlled = controlledEntityId === id;
+
+  // Track facing direction based on position deltas. Keeps last direction
+  // when idle so Pedro doesn't snap back to south the moment he stops.
+  // Also tracks last time the avatar actually moved, used to decide whether
+  // to cycle walk frames vs show the idle texture.
+  const prevPosRef = useRef<{ x: number; y: number } | null>(null);
+  const lastMoveTsRef = useRef<number>(0);
+  const [deltaFacing, setDeltaFacing] = useState<Direction8>("south");
+  useEffect(() => {
+    if (!position) return;
+    const prev = prevPosRef.current;
+    prevPosRef.current = { x: position.x, y: position.y };
+    if (!prev) return;
+    const dx = position.x - prev.x;
+    const dy = position.y - prev.y;
+    if (Math.hypot(dx, dy) < 0.5) return;
+    lastMoveTsRef.current = performance.now();
+    setDeltaFacing(directionFromDelta(dx, dy));
+  }, [position]);
+
+  // facing: store override wins over delta-detected facing.
+  const facing: Direction8 =
+    (facingOverride as Direction8 | undefined) ?? deltaFacing;
+
+  // Walk-cycle frame index. ~140ms per frame. Only advances while moving.
+  const [walkFrameIdx, setWalkFrameIdx] = useState(0);
+  const [isMoving, setIsMoving] = useState(false);
+  useTick((ticker) => {
+    const now = performance.now();
+    const moving = now - lastMoveTsRef.current < 120;
+    if (moving !== isMoving) setIsMoving(moving);
+    if (!moving) return;
+    setWalkFrameIdx((idx) => {
+      const next = idx + ticker.deltaMS / 140;
+      return next;
+    });
+  });
+
+  // Choose the active texture: walk frame > idle direction > fallback.
+  let activeTexture: Texture | null = directionalTextures?.[facing] ?? texture;
+  if (isMoving && walkFrames) {
+    const frames = walkFrames[facing];
+    if (frames && frames.length > 0) {
+      const idx = Math.floor(walkFrameIdx) % frames.length;
+      activeTexture = frames[idx];
+    }
+  }
+
+  // Auto-clear the bubble after USER_AVATAR_BUBBLE_DURATION_MS so prompts
+  // don't linger forever. New prompts reset the timer because bubbleText
+  // changes and re-runs this effect.
+  useEffect(() => {
+    if (!bubbleText) return;
+    const timer = setTimeout(() => {
+      setUserAvatarBubble(id, null);
+    }, USER_AVATAR_BUBBLE_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [bubbleText, id, setUserAvatarBubble]);
+
+  const handleTap = useCallback(() => {
+    if (!clickToFocusEnabled || !position) return;
+    const canvas = document.querySelector(".pixi-canvas-container canvas");
+    if (!canvas) return;
+    const rect = (canvas as HTMLElement).getBoundingClientRect();
+    const scale = rect.width / 1280;
+    const screenX = rect.left + position.x * scale;
+    const screenY = rect.top + position.y * scale;
+    openFocusPopup(id, screenX, screenY);
+  }, [clickToFocusEnabled, id, openFocusPopup, position]);
+
+  if (!texture || !position) return null;
+
+  // Auto-seated: if this avatar is parked next to a chair, render the
+  // cropped (waist-up) sprite anchored to the desk-top of that chair.
+  const chair = findNearestChair(position, 30);
+
+  if (chair && activeTexture) {
+    const src = activeTexture.source;
+    const seatedSourceH = Math.round(src.height * SEATED_CROP_RATIO);
+    const seatedTex = new Texture({
+      source: src,
+      frame: new Rectangle(0, 0, src.width, seatedSourceH),
+    });
+    const seatedRenderH = size * SEATED_CROP_RATIO;
+    return (
+      <pixiContainer
+        x={chair.x}
+        y={chair.deskTopY}
+        zIndex={chair.deskTopY - 1}
+        onPointerTap={handleTap}
+        interactive={clickToFocusEnabled}
+      >
+        <pixiSprite
+          texture={seatedTex}
+          anchor={{ x: 0.5, y: 1 }}
+          x={0}
+          y={0}
+          width={size}
+          height={seatedRenderH}
+        />
+        {/* Label sits just above the visible head */}
+        <pixiContainer y={-seatedRenderH - 8}>
+          <pixiGraphics
+            draw={(g) => {
+              const pillW = Math.max(56, label.length * 11 + 20);
+              const pillH = 22;
+              g.clear();
+              g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+              g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+              g.stroke({ color: 0xb8972a, width: 1.5 });
+            }}
+          />
+          <pixiText
+            text={label}
+            anchor={0.5}
+            resolution={2}
+            style={{
+              fontFamily: "monospace",
+              fontSize: 18,
+              fill: 0xfde7b0,
+              fontWeight: "bold",
+            }}
+          />
+        </pixiContainer>
+        {isControlled && <Plumbob y={-seatedRenderH - 36} />}
+      </pixiContainer>
+    );
+  }
+
+  return (
+    <pixiContainer
+      x={position.x}
+      y={position.y}
+      zIndex={position.y}
+      onPointerTap={handleTap}
+      interactive={clickToFocusEnabled}
+    >
+      {/* Static full body — no shadow, no breathing animation.
+          When directionalTextures is provided, swap based on movement. */}
+      <pixiSprite
+        texture={activeTexture ?? undefined}
+        anchor={{ x: 0.5, y: 1 }}
+        x={0}
+        y={0}
+        width={size}
+        height={size}
+      />
+      {/* Dark pill with gold border behind the name for emphasis.
+          Anchored to the actual top of the head (accounting for transparent
+          padding above the character in the source sprite). Gap reduzido
+          de 19 → 8 pra bater EXATAMENTE com o branch sentado (linha 612),
+          onde a badge fica a 8px acima do topo do sprite cortado. Mesmo
+          tamanho de pill (pillW/pillH/fontSize) já tá pareado. */}
+      <pixiContainer y={-(size * (1 - topPaddingRatio) + 8)}>
+        <pixiGraphics
+          draw={(g) => {
+            const pillW = Math.max(56, label.length * 11 + 20);
+            const pillH = 22;
+            g.clear();
+            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+            g.stroke({ color: 0xb8972a, width: 1.5 });
+          }}
+        />
+        <pixiText
+          text={label}
+          anchor={0.5}
+          resolution={2}
+          style={{
+            fontFamily: "monospace",
+            fontSize: 18,
+            fill: 0xfde7b0,
+            fontWeight: "bold",
+          }}
+        />
+      </pixiContainer>
+      {/* Sims-style plumbob — only renders when this avatar is being driven.
+          Anchored further above the head than the name pill so it sits
+          comfortably above the label without overlapping. */}
+      {isControlled && (
+        <Plumbob y={-(size * (1 - topPaddingRatio) + 70)} />
+      )}
+
+      {/* Speech bubble — shows the user's terminal prompt as Pedro talking.
+          maxChars=300 overrides the default 60-char truncation que boss e
+          agents usam, então prompts longos do user ficam legíveis.
+          Quando renderBubble=false, o caller desenha na top-level layer. */}
+      {renderBubble && bubbleText && (
+        <AgentBubble
+          content={{ type: "speech", text: bubbleText }}
+          yOffset={-(size * (1 - topPaddingRatio) + 42)}
+          maxChars={300}
+        />
+      )}
+    </pixiContainer>
+  );
+}
+
+// ============================================================================
+// PEDRO BUBBLE LAYER — desenha o balão do Pedro numa camada top-level pra
+// garantir que fica acima de qualquer personagem que passe na frente.
+// ============================================================================
+
+function PedroBubbleLayer(): ReactNode {
+  const position = useGameStore((s) => s.userAvatarPositions.get("pedro"));
+  const bubbleText = useGameStore((s) => s.userAvatarBubbles.get("pedro"));
+  if (!position || !bubbleText) return null;
+  // Pedro size=256 e topPaddingRatio=58/228 (vide UserAvatar do Pedro acima).
+  const yOffset = -(256 * (1 - 58 / 228) + 42);
+  return (
+    <pixiContainer x={position.x} y={position.y}>
+      <AgentBubble
+        content={{ type: "speech", text: bubbleText }}
+        yOffset={yOffset}
+        maxChars={300}
+      />
+    </pixiContainer>
+  );
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -181,11 +765,93 @@ export function OfficeGame(): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null);
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
 
+  // Click-to-move: when a tile is tapped and a character is being controlled,
+  // pathfind from its current position and queue the path in the store. The
+  // RAF loop in `usePlayerControl` consumes the queue and walks the entity.
+  // Pixi's `global` on a FederatedPointerEvent is world-space (the office
+  // canvas is the root coord system here), so no extra zoom/pan conversion
+  // is needed — TransformWrapper scales the whole canvas after Pixi.
+  const handleFloorTap = useCallback((e: FederatedPointerEvent) => {
+    const store = useGameStore.getState();
+    const id = store.controlledEntityId;
+    if (!id) return;
+
+    // World-space pixel coords come straight from Pixi's global pointer pos
+    // (the container that hosts this handler sits in office-world space).
+    const x = e.global.x;
+    const y = e.global.y;
+
+    // Resolve current position of the controlled entity.
+    let cur: { x: number; y: number } | null = null;
+    if (id === "boss") cur = store.boss.position;
+    else if (store.userAvatarPositions.has(id))
+      cur = store.userAvatarPositions.get(id) ?? null;
+    else if (store.agents.has(id))
+      cur = store.agents.get(id)?.currentPosition ?? null;
+    if (!cur) return;
+
+    // Snap target to grid; bail out if the tile is unwalkable.
+    const gx = Math.floor(x / TILE_SIZE);
+    const gy = Math.floor(y / TILE_SIZE);
+    const grid = getNavigationGrid();
+    if (!grid.isWalkable(gx, gy)) return;
+
+    // Aim at the tile center so the entity comes to rest neatly.
+    const target = { x: gx * TILE_SIZE + TILE_SIZE / 2, y: gy * TILE_SIZE + TILE_SIZE / 2 };
+    const path = calculatePath(cur, target, id);
+    if (path.length === 0) return;
+
+    store.setClickToMoveTarget({
+      entityId: id,
+      path,
+      pathIdx: 0,
+      targetTile: { gx, gy },
+    });
+  }, []);
+
   // HMR version for forcing remount
   const hmrVersion = getHmrVersion();
 
   // Load all office textures
   const { textures, loaded: spritesLoaded } = useOfficeTextures();
+  const {
+    idle: characterTexture,
+    typing: characterTypingTexture,
+    typingEyeLeft: characterTypingEyeLeftTexture,
+    user: userAvatarTexture,
+    userSuit: userSuitTexture,
+    chromeDummy: chromeDummyTexture,
+    chromeDummyStepLeft: chromeDummyStepLeftTexture,
+    chromeDummyStepRight: chromeDummyStepRightTexture,
+    chromeDummySideIdle: chromeDummySideIdleTexture,
+    chromeDummySideStep1: chromeDummySideStep1Texture,
+    chromeDummySideStep2: chromeDummySideStep2Texture,
+    chromeDummyBackIdle: chromeDummyBackIdleTexture,
+    chromeDummyBackStep1: chromeDummyBackStep1Texture,
+    chromeDummyBackStep2: chromeDummyBackStep2Texture,
+    claudeGoldIdle: claudeGoldIdleTexture,
+    claudeGoldStepLeft: claudeGoldStepLeftTexture,
+    claudeGoldStepRight: claudeGoldStepRightTexture,
+    claudeGoldSideIdle: claudeGoldSideIdleTexture,
+    claudeGoldSideStep1: claudeGoldSideStep1Texture,
+    claudeGoldSideStep2: claudeGoldSideStep2Texture,
+    claudeGoldBackIdle: claudeGoldBackIdleTexture,
+    claudeGoldBackStep1: claudeGoldBackStep1Texture,
+    claudeGoldBackStep2: claudeGoldBackStep2Texture,
+    claudeGoldIdleFrames,
+    aiSilverIdle: aiSilverIdleTexture,
+    aiSilverStepLeft: aiSilverStepLeftTexture,
+    aiSilverStepRight: aiSilverStepRightTexture,
+    aiSilverSideIdle: aiSilverSideIdleTexture,
+    aiSilverSideStep1: aiSilverSideStep1Texture,
+    aiSilverSideStep2: aiSilverSideStep2Texture,
+    aiSilverBackIdle: aiSilverBackIdleTexture,
+    aiSilverBackStep1: aiSilverBackStep1Texture,
+    aiSilverBackStep2: aiSilverBackStep2Texture,
+    aiSilverIdleFrames,
+  } = useDefaultCharacterTexture();
+  const { idle: pedroDirectionalTextures, walk: pedroWalkFrames } =
+    usePedroSprites();
 
   // Start animation system
   useAnimationSystem();
@@ -203,6 +869,10 @@ export function OfficeGame(): ReactNode {
   // Subscribe to store state
   const agents = useGameStore(useShallow(selectAgents));
   const boss = useGameStore(selectBoss);
+  // Cycle Claude's response through sentence-sized chunks (every ~1.8s) so
+  // the bubble reads like a fast back-and-forth chat with Pedro instead of
+  // a single wall-of-text. Frozen on the final chunk after the cycle.
+  const cycledBossBubble = useChunkedBubble(boss.bubble.content);
   const todos = useGameStore(selectTodos);
   const debugMode = useGameStore(selectDebugMode);
   const showPaths = useGameStore(selectShowPaths);
@@ -221,11 +891,170 @@ export function OfficeGame(): ReactNode {
     if (floorId === LOBBY_FLOOR_ID) {
       return { name: "Lobby", icon: "\u{1F6AA}", accent: "#94a3b8" };
     }
+    if (floorId === ALL_FLOOR_ID) {
+      return { name: "Todas as Sessões", icon: "\u{1F310}", accent: "#B8972A" };
+    }
     return buildingConfig?.floors.find((f) => f.id === floorId) ?? null;
   }, [floorId, buildingConfig]);
 
   // Compaction animation state
   const compactionAnimation = useCompactionAnimation();
+
+  // Ambient lighting — tints the whole office based on real wall-clock hour.
+  // Dawn warm pink → midday clear → sunset orange → evening blue → night navy.
+  // DEMO: a phantom agent that walks between desks and "sits" (isTyping=true)
+  // at each one for 3s. Gated by the SIMULAR toggle — only renders/animates
+  // when the backend simulation is running.
+  const { running: simulationRunning } = useSimulationStatus();
+  const [demoPos, setDemoPos] = useState({ x: 250, y: 750 });
+  const [demoIsTyping, setDemoIsTyping] = useState(false);
+  const demoIsTypingRef = useRef(false);
+
+  // Collision editor — when active, the canvas shows a paintable tile grid.
+  // Pick a paint mode (wall/floor/erase) and click/drag to apply. Toggle E.
+  const [collisionEditorActive, setCollisionEditorActive] = useState(false);
+  const [paintMode, setPaintMode] = useState<PaintMode>("wall");
+  const [overrideCount, setOverrideCount] = useState(() =>
+    typeof window !== "undefined" ? getNavigationGrid().getOverrideCount() : 0,
+  );
+  useEffect(() => {
+    const grid = getNavigationGrid();
+    setOverrideCount(grid.getOverrideCount());
+    return grid.onChange(() => setOverrideCount(grid.getOverrideCount()));
+  }, []);
+
+  // Ctrl+Z to undo while the editor is active.
+  useEffect(() => {
+    if (!collisionEditorActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(e)) return;
+      if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        getNavigationGrid().undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [collisionEditorActive]);
+  // Demo walker — uses A* via calculatePath so it respects collisions
+  // (including any walls the user paints in the editor). Goals are the two
+  // desk sit positions; on arrival the agent sits 3 s, then plans a new path
+  // to the other desk.
+  const demoPathRef = useRef<Position[]>([]);
+  const demoPathIdxRef = useRef(0);
+  const demoGoalIdxRef = useRef(0);
+  useEffect(() => {
+    if (!simulationRunning) return;
+    const goals: Array<{ x: number; y: number }> = [
+      { x: 512, y: 445 }, // SIT at desk row 0, col 1
+      { x: 768, y: 637 }, // SIT at desk row 1, col 2
+    ];
+    const planNextPath = (from: { x: number; y: number }) => {
+      const goal = goals[demoGoalIdxRef.current];
+      const path = calculatePath(from, goal, "demo-walker");
+      demoPathRef.current = path;
+      demoPathIdxRef.current = 0;
+    };
+    // Initial plan
+    planNextPath({ x: 250, y: 750 });
+
+    const id = setInterval(() => {
+      if (demoIsTypingRef.current) return;
+      setDemoPos((prev) => {
+        const path = demoPathRef.current;
+        if (!path || path.length === 0) {
+          planNextPath(prev);
+          return prev;
+        }
+        // Snap to next waypoint
+        const target = path[demoPathIdxRef.current];
+        if (!target) {
+          // End of path — sit, then move to next goal
+          demoIsTypingRef.current = true;
+          setDemoIsTyping(true);
+          setTimeout(() => {
+            demoIsTypingRef.current = false;
+            setDemoIsTyping(false);
+            demoGoalIdxRef.current =
+              (demoGoalIdxRef.current + 1) % goals.length;
+            planNextPath(prev);
+          }, 3000);
+          return prev;
+        }
+        const dx = target.x - prev.x;
+        const dy = target.y - prev.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 4) {
+          demoPathIdxRef.current += 1;
+          return prev;
+        }
+        const speed = 3;
+        return {
+          x: prev.x + (dx / dist) * speed,
+          y: prev.y + (dy / dist) * speed,
+        };
+      });
+    }, 40);
+    return () => clearInterval(id);
+  }, [simulationRunning]);
+
+  const [ambient, setAmbient] = useState<{ color: number; alpha: number }>({
+    color: 0,
+    alpha: 0,
+  });
+  useEffect(() => {
+    const update = () => {
+      const h = new Date().getHours();
+      if (h >= 6 && h < 8) setAmbient({ color: 0xffa080, alpha: 0.12 });
+      else if (h >= 8 && h < 17) setAmbient({ color: 0xfff5e0, alpha: 0.04 });
+      else if (h >= 17 && h < 19) setAmbient({ color: 0xff7030, alpha: 0.18 });
+      else if (h >= 19 && h < 22) setAmbient({ color: 0x5868a0, alpha: 0.22 });
+      else setAmbient({ color: 0x101830, alpha: 0.35 });
+    };
+    update();
+    const id = setInterval(update, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Floating tool icons — emoji that rises from a character when its bubble
+  // icon changes (i.e., the agent/boss starts using a new tool).
+  const [floatingIcons, setFloatingIcons] = useState<
+    Array<{ id: number; x: number; y: number; icon: string }>
+  >([]);
+  const lastBubbleIconRef = useRef<Map<string, string>>(new Map());
+  const floatIdRef = useRef(0);
+  useEffect(() => {
+    const spawned: typeof floatingIcons = [];
+    const check = (key: string, x: number, y: number, icon?: string | null) => {
+      const last = lastBubbleIconRef.current.get(key);
+      if (icon && icon !== last) {
+        const emoji = ICON_MAP[icon] ?? icon;
+        spawned.push({ id: floatIdRef.current++, x, y, icon: emoji });
+      }
+      if (icon) lastBubbleIconRef.current.set(key, icon);
+      else lastBubbleIconRef.current.delete(key);
+    };
+    for (const agent of agents.values()) {
+      check(
+        agent.id,
+        agent.currentPosition.x,
+        agent.currentPosition.y,
+        agent.bubble?.content?.icon,
+      );
+    }
+    check(
+      "__boss__",
+      boss.position.x,
+      boss.position.y,
+      boss.bubble?.content?.icon,
+    );
+    if (spawned.length > 0) {
+      setFloatingIcons((prev) => [...prev, ...spawned]);
+    }
+  }, [agents, boss]);
+  const removeFloatingIcon = useCallback((id: number) => {
+    setFloatingIcons((prev) => prev.filter((f) => f.id !== id));
+  }, []);
 
   // Use store's elevator state (controlled by state machine)
   const isElevatorOpen = elevatorState === "open";
@@ -264,9 +1093,20 @@ export function OfficeGame(): ReactNode {
   // Keyboard shortcuts for debug
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(e)) return;
       if (document.querySelector("[role='dialog'][aria-modal='true']")) return;
       if (e.key === "d" || e.key === "D") {
         useGameStore.getState().setDebugMode(!debugMode);
+      }
+      if (e.key === "e" || e.key === "E") {
+        setCollisionEditorActive((v) => !v);
+      }
+      // X — silenciar Claude: dispensa balão atual e qualquer fila pendente
+      // + força backendState=idle pra cortar fone tocando / "recebendo".
+      if (e.key === "x" || e.key === "X") {
+        const store = useGameStore.getState();
+        store.clearBubbles("boss");
+        store.updateBossBackendState("idle");
       }
       if (debugMode) {
         if (e.key === "p" || e.key === "P") {
@@ -304,20 +1144,13 @@ export function OfficeGame(): ReactNode {
         initialScale={1}
         minScale={1}
         maxScale={3}
-        centerZoomedOut={false}
-        limitToBounds={false}
+        centerZoomedOut={true}
+        centerOnInit={true}
+        limitToBounds={true}
+        panning={{ disabled: false, velocityDisabled: false }}
         wheel={{ step: 0.1 }}
         pinch={{ step: 5 }}
-        doubleClick={{ mode: "reset" }}
-        onTransform={(ref, state) => {
-          // Auto-reset pan offset when zooming back out to 1:1
-          if (
-            state.scale <= 1 &&
-            (state.positionX !== 0 || state.positionY !== 0)
-          ) {
-            ref.resetTransform(0);
-          }
-        }}
+        doubleClick={{ disabled: true }}
       >
         <ZoomControls />
         <TransformComponent
@@ -346,6 +1179,27 @@ export function OfficeGame(): ReactNode {
                 <>
                   {/* Floor and walls */}
                   <OfficeBackground floorTileTexture={textures.floorTile} />
+
+                  {/* Click-to-move capture layer: invisible rect over the
+                      whole office floor. Sits just above the background and
+                      below all interactive sprites (chairs, characters), so
+                      tapping a sprite still triggers that sprite's handler
+                      while taps on bare floor route to click-to-move. */}
+                  <pixiContainer
+                    eventMode="static"
+                    onPointerTap={handleFloorTap}
+                  >
+                    <pixiGraphics
+                      draw={(g) => {
+                        g.clear();
+                        g.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        g.fill({ color: 0x000000, alpha: 0.0001 });
+                      }}
+                    />
+                  </pixiContainer>
+
+                  {/* Path + destination marker for the controlled entity. */}
+                  <ClickToMovePath />
 
                   {/* Boss area rug - rendered right after floor */}
                   {textures.bossRug && (
@@ -442,14 +1296,22 @@ export function OfficeGame(): ReactNode {
                     />
                   )}
 
+                  {/* Ambient radio (boombox on a small desk) — diagonal mirror of the printer */}
+                  <RadioSprite
+                    x={RADIO_POSITION.x}
+                    y={RADIO_POSITION.y}
+                    deskTexture={textures.desk}
+                    radioTexture={textures.radio}
+                  />
+
                   {/* Elevator with animated doors and agents inside */}
                   <Elevator
                     isOpen={isElevatorOpen}
                     agents={agents}
                     frameTexture={textures.elevatorFrame}
                     doorTexture={textures.elevatorDoor}
-                    headsetTexture={textures.headset}
-                    sunglassesTexture={textures.sunglasses}
+                    headsetTexture={null}
+                    sunglassesTexture={null}
                   />
 
                   {/* Floor sign above elevator */}
@@ -507,8 +1369,22 @@ export function OfficeGame(): ReactNode {
                             position={agent.currentPosition}
                             phase={agent.phase}
                             bubble={agent.bubble.content}
-                            headsetTexture={textures.headset}
-                            sunglassesTexture={textures.sunglasses}
+                            headsetTexture={null}
+                            sunglassesTexture={null}
+                            characterTexture={aiSilverIdleTexture ?? chromeDummyTexture}
+                            characterTypingTexture={null}
+                            characterTypingEyeLeftTexture={null}
+                            characterStepLeftTexture={aiSilverStepLeftTexture ?? chromeDummyStepLeftTexture}
+                            characterStepRightTexture={aiSilverStepRightTexture ?? chromeDummyStepRightTexture}
+                            characterSideIdleTexture={aiSilverSideIdleTexture ?? chromeDummySideIdleTexture}
+                            characterSideStep1Texture={aiSilverSideStep1Texture ?? chromeDummySideStep1Texture}
+                            characterSideStep2Texture={aiSilverSideStep2Texture ?? chromeDummySideStep2Texture}
+                            characterBackIdleTexture={aiSilverBackIdleTexture ?? chromeDummyBackIdleTexture}
+                            characterBackStep1Texture={aiSilverBackStep1Texture ?? chromeDummyBackStep1Texture}
+                            characterBackStep2Texture={aiSilverBackStep2Texture ?? chromeDummyBackStep2Texture}
+                            characterIdleFrames={aiSilverIdleFrames}
+                            characterRenderSize={aiSilverIdleTexture ? 240 : 128}
+                            characterFeetOffsetY={aiSilverIdleTexture ? 60 : 0}
                             renderBubble={false}
                             renderLabel={false}
                             isTyping={agent.isTyping}
@@ -525,28 +1401,41 @@ export function OfficeGame(): ReactNode {
                     keyboardTexture={textures.keyboard}
                   />
 
-                  {/* Agent arms - rendered after desk/keyboard, before headsets */}
-                  {Array.from(agents.values())
-                    .filter((agent) => agent.phase === "idle")
-                    .map((agent) => (
-                      <AgentArms
-                        key={`arms-${agent.id}`}
-                        position={agent.currentPosition}
-                        isTyping={agent.isTyping}
-                      />
-                    ))}
+                  {/* Agent arms + headsets removed when using character sprite texture */}
 
-                  {/* Agent headsets - rendered after arms so they appear on top */}
-                  {textures.headset &&
-                    Array.from(agents.values())
-                      .filter((agent) => agent.phase === "idle")
-                      .map((agent) => (
-                        <AgentHeadset
-                          key={`headset-${agent.id}`}
-                          position={agent.currentPosition}
-                          headsetTexture={textures.headset!}
-                        />
-                      ))}
+                  {/* DEMO: phantom agent walking + sitting. Only rendered
+                      while the SIMULAR toggle is on. */}
+                  {simulationRunning && (
+                  <pixiContainer zIndex={demoPos.y}>
+                    <AgentSprite
+                      id="__demo_walker__"
+                      name={demoIsTyping ? "Demo (sentado)" : "Demo"}
+                      color="#ff8800"
+                      number={999}
+                      position={demoPos}
+                      phase="idle"
+                      bubble={null}
+                      headsetTexture={null}
+                      sunglassesTexture={null}
+                      characterTexture={aiSilverIdleTexture ?? chromeDummyTexture}
+                      characterTypingTexture={aiSilverIdleTexture ?? chromeDummyTexture}
+                      characterStepLeftTexture={aiSilverStepLeftTexture ?? chromeDummyStepLeftTexture}
+                      characterStepRightTexture={aiSilverStepRightTexture ?? chromeDummyStepRightTexture}
+                      characterSideIdleTexture={aiSilverSideIdleTexture ?? chromeDummySideIdleTexture}
+                      characterSideStep1Texture={aiSilverSideStep1Texture ?? chromeDummySideStep1Texture}
+                      characterSideStep2Texture={aiSilverSideStep2Texture ?? chromeDummySideStep2Texture}
+                      characterBackIdleTexture={aiSilverBackIdleTexture ?? chromeDummyBackIdleTexture}
+                      characterBackStep1Texture={aiSilverBackStep1Texture ?? chromeDummyBackStep1Texture}
+                      characterBackStep2Texture={aiSilverBackStep2Texture ?? chromeDummyBackStep2Texture}
+                      characterIdleFrames={aiSilverIdleFrames}
+                      characterRenderSize={aiSilverIdleTexture ? 240 : 128}
+                      characterFeetOffsetY={aiSilverIdleTexture ? 60 : 0}
+                      renderBubble={false}
+                      renderLabel={true}
+                      isTyping={demoIsTyping}
+                    />
+                  </pixiContainer>
+                  )}
 
                   {/* Monitors and decorations (in front of agent arms) */}
                   <DeskSurfacesTop
@@ -564,24 +1453,73 @@ export function OfficeGame(): ReactNode {
                     thermosTexture={textures.thermos}
                   />
 
-                  {/* Boss */}
-                  <BossSprite
-                    position={boss.position}
-                    state={boss.backendState}
-                    bubble={boss.bubble.content}
-                    inUseBy={boss.inUseBy}
-                    currentTask={boss.currentTask}
-                    chairTexture={textures.chair}
-                    deskTexture={textures.desk}
-                    keyboardTexture={textures.keyboard}
-                    monitorTexture={textures.monitor}
-                    phoneTexture={textures.phone}
-                    headsetTexture={textures.headset}
-                    sunglassesTexture={textures.sunglasses}
-                    renderBubble={false}
-                    isTyping={boss.isTyping}
-                    isAway={compactionAnimation.phase !== "idle"}
-                  />
+                  {/* Boss — móveis SEMPRE fixos em BOSS_POSITION. Quando o
+                      boss.position se afasta da mesa (controle pelo usuário),
+                      escondemos o corpo seated (isAway=true) e renderizamos o
+                      WanderingBoss em boss.position. */}
+                  {(() => {
+                    const bdx = boss.position.x - BOSS_POSITION.x;
+                    const bdy = boss.position.y - BOSS_POSITION.y;
+                    const isAtDesk = Math.hypot(bdx, bdy) < 25;
+                    const isAway =
+                      !isAtDesk || compactionAnimation.phase !== "idle";
+                    return (
+                      <BossSprite
+                        position={BOSS_POSITION}
+                        state={boss.backendState}
+                        bubble={boss.bubble.content}
+                        inUseBy={boss.inUseBy}
+                        currentTask={boss.currentTask}
+                        chairTexture={textures.chair}
+                        deskTexture={textures.desk}
+                        keyboardTexture={textures.keyboard}
+                        monitorTexture={textures.monitor}
+                        phoneTexture={textures.phone}
+                        headsetTexture={null}
+                        sunglassesTexture={null}
+                        characterTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                        characterTypingTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                        characterTypingEyeLeftTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                        characterIdleFrames={claudeGoldIdleFrames}
+                        characterRenderSize={claudeGoldIdleTexture ? 240 : 128}
+                        renderBubble={false}
+                        isTyping={true /* TEMP DEBUG: forced typing pose */}
+                        isWorking={
+                          boss.backendState === "working" ||
+                          boss.backendState === "delegating" ||
+                          boss.backendState === "receiving"
+                        }
+                        isAway={isAway}
+                      />
+                    );
+                  })()}
+
+                  {/* Wandering boss — só quando o boss saiu da mesa */}
+                  {(() => {
+                    const bdx = boss.position.x - BOSS_POSITION.x;
+                    const bdy = boss.position.y - BOSS_POSITION.y;
+                    const isAtDesk = Math.hypot(bdx, bdy) < 25;
+                    if (isAtDesk || compactionAnimation.phase !== "idle")
+                      return null;
+                    return (
+                      <WanderingBoss
+                        position={boss.position}
+                        tint={0xffffff}
+                        textures={{
+                          idle: claudeGoldIdleTexture ?? chromeDummyTexture,
+                          stepLeft: claudeGoldStepLeftTexture ?? chromeDummyStepLeftTexture,
+                          stepRight: claudeGoldStepRightTexture ?? chromeDummyStepRightTexture,
+                          sideIdle: claudeGoldSideIdleTexture ?? chromeDummySideIdleTexture,
+                          sideStep1: claudeGoldSideStep1Texture ?? chromeDummySideStep1Texture,
+                          sideStep2: claudeGoldSideStep2Texture ?? chromeDummySideStep2Texture,
+                          backIdle: claudeGoldBackIdleTexture ?? chromeDummyBackIdleTexture,
+                          backStep1: claudeGoldBackStep1Texture ?? chromeDummyBackStep1Texture,
+                          backStep2: claudeGoldBackStep2Texture ?? chromeDummyBackStep2Texture,
+                        }}
+                        idleFrames={claudeGoldIdleFrames}
+                      />
+                    );
+                  })()}
 
                   {/* Mobile Boss (when walking to/from trash can) */}
                   {compactionAnimation.bossPosition && (
@@ -589,15 +1527,16 @@ export function OfficeGame(): ReactNode {
                       position={compactionAnimation.bossPosition}
                       jumpOffset={compactionAnimation.jumpOffset}
                       scale={compactionAnimation.bossScale}
-                      sunglassesTexture={textures.sunglasses}
-                      headsetTexture={textures.headset}
+                      sunglassesTexture={null}
+                      headsetTexture={null}
                     />
                   )}
 
-                  {/* Trash Can (Context Utilization Indicator) - right of boss desk */}
+                  {/* Trash Can (Context Utilization Indicator) - fixed next
+                      to boss desk; doesn't follow when boss walks away. */}
                   <TrashCanSprite
-                    x={boss.position.x + TRASH_CAN_OFFSET.x}
-                    y={boss.position.y + TRASH_CAN_OFFSET.y}
+                    x={BOSS_POSITION.x + TRASH_CAN_OFFSET.x}
+                    y={BOSS_POSITION.y + TRASH_CAN_OFFSET.y}
                     contextUtilization={
                       compactionAnimation.phase !== "idle"
                         ? compactionAnimation.animatedContextUtilization
@@ -606,6 +1545,38 @@ export function OfficeGame(): ReactNode {
                     isCompacting={isCompacting}
                     isStomping={compactionAnimation.isStomping}
                   />
+
+
+                  {/* Pedro — suit + beard variant. 8-direction rotations from
+                      /sprites/characters/PEDRO/rotations/ swap on movement.
+                      topPaddingRatio = 58/228 (source sprite has 58px of empty
+                      space above the head in a 228px-tall canvas). */}
+                  <UserAvatar
+                    id="pedro"
+                    texture={userSuitTexture}
+                    label="Pedro"
+                    phase={3.4}
+                    waist={85}
+                    size={256}
+                    topPaddingRatio={58 / 228}
+                    directionalTextures={pedroDirectionalTextures}
+                    walkFrames={pedroWalkFrames}
+                    renderBubble={false}
+                  />
+                  {/* Estagiário and Chrome Dummy hidden por hora — uncomment
+                      to bring them back into the office. */}
+                  {/*
+                  <UserAvatar
+                    id="estagiario"
+                    texture={userAvatarTexture}
+                    label="Estagiário"
+                  />
+                  <UserAvatar
+                    id="chrome-dummy"
+                    texture={chromeDummyTexture}
+                    label="Chrome Dummy"
+                  />
+                  */}
 
                   {/* Debug overlays */}
                   {debugMode && (
@@ -616,6 +1587,12 @@ export function OfficeGame(): ReactNode {
                       showObstacles={showObstacles}
                     />
                   )}
+
+                  {/* Collision editor overlay (paintable grid) */}
+                  <CollisionEditor
+                    active={collisionEditorActive}
+                    paintMode={paintMode}
+                  />
 
                   {/* Debug mode indicator */}
                   {debugMode && (
@@ -732,10 +1709,50 @@ export function OfficeGame(): ReactNode {
                         />
                       </pixiContainer>
                     ))}
-                  {boss.bubble.content && (
-                    <pixiContainer x={boss.position.x} y={boss.position.y}>
-                      <BossBubble content={boss.bubble.content} yOffset={-80} />
+                  {/* Balão do Claude — renderiza chunks ciclados de
+                      `cycledBossBubble` (resposta crua dividida em
+                      sentenças, ~1.8s cada, congela na última).
+                      Clicar dispensa o balão e força backendState=idle
+                      pra cortar também a ligação/recebimento em curso. */}
+                  {cycledBossBubble && (
+                    <pixiContainer
+                      x={boss.position.x}
+                      y={boss.position.y}
+                      eventMode="static"
+                      cursor="pointer"
+                      onPointerTap={() => {
+                        const store = useGameStore.getState();
+                        store.clearBubbles("boss");
+                        store.updateBossBackendState("idle");
+                      }}
+                    >
+                      <BossBubble content={cycledBossBubble} yOffset={-80} />
                     </pixiContainer>
+                  )}
+                  {/* Balão do Pedro (user avatar) — top-level pra ficar sempre
+                      acima de qualquer personagem que passe na frente. */}
+                  <PedroBubbleLayer />
+
+                  {/* Floating tool icons — rise + fade above each character. */}
+                  {floatingIcons.map((f) => (
+                    <FloatingIcon
+                      key={f.id}
+                      x={f.x}
+                      y={f.y}
+                      icon={f.icon}
+                      onDone={() => removeFloatingIcon(f.id)}
+                    />
+                  ))}
+
+                  {/* Ambient lighting — tints the scene based on time of day. */}
+                  {ambient.alpha > 0 && (
+                    <pixiGraphics
+                      draw={(g) => {
+                        g.clear();
+                        g.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        g.fill({ color: ambient.color, alpha: ambient.alpha });
+                      }}
+                    />
                   )}
                 </>
               )}
@@ -743,6 +1760,141 @@ export function OfficeGame(): ReactNode {
           </div>
         </TransformComponent>
       </TransformWrapper>
+
+      {/* Collision editor controls — visible only while the editor is active */}
+      {collisionEditorActive && (
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs shadow-lg"
+          style={{
+            background: "rgba(14, 14, 14, 0.92)",
+            borderColor: "#B8972A",
+            color: "#fde7b0",
+            fontFamily: "Montserrat, sans-serif",
+          }}
+        >
+          <span className="font-semibold tracking-wider">EDITOR DE COLISÃO</span>
+          <span className="opacity-50">|</span>
+
+          {/* Paint mode selector */}
+          {(
+            [
+              { id: "wall" as const, label: "Parede", swatch: "#ff3030" },
+              { id: "floor" as const, label: "Chão", swatch: "#30ff60" },
+              { id: "erase" as const, label: "Borracha", swatch: "#ffd84a" },
+            ]
+          ).map((mode) => {
+            const isActive = paintMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setPaintMode(mode.id)}
+                className="flex items-center gap-1.5 rounded border px-2 py-0.5 transition-colors"
+                style={{
+                  borderColor: isActive ? mode.swatch : "#B8972A",
+                  background: isActive ? mode.swatch : "transparent",
+                  color: isActive ? "#0e0e0e" : "#fde7b0",
+                  fontWeight: isActive ? 600 : 400,
+                }}
+                title={
+                  mode.id === "wall"
+                    ? "Pintar tiles como WALL (bloqueado)"
+                    : mode.id === "floor"
+                      ? "Pintar tiles como FLOOR (andável, sobrepõe mesas)"
+                      : "Apagar override (volta ao padrão)"
+                }
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: mode.swatch }}
+                />
+                {mode.label}
+              </button>
+            );
+          })}
+
+          <span className="opacity-50">|</span>
+          <span className="opacity-80">overrides: {overrideCount}</span>
+          <span className="opacity-50">|</span>
+          <span className="opacity-70 italic">salvo auto · Ctrl+Z desfaz</span>
+          <button
+            type="button"
+            onClick={() => {
+              const data = getNavigationGrid().exportOverrides();
+              const blob = new Blob([JSON.stringify(data, null, 2)], {
+                type: "application/json",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `collision-overrides-${new Date()
+                .toISOString()
+                .replace(/[:.]/g, "-")
+                .slice(0, 19)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+            title="Baixa um .json com todos os overrides — versionável e portátil entre navegadores"
+          >
+            Exportar JSON
+          </button>
+          <label
+            className="cursor-pointer rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+            title="Carrega overrides de um .json previamente exportado (substitui os atuais)"
+          >
+            Importar JSON
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={async (ev) => {
+                const file = ev.target.files?.[0];
+                if (!file) return;
+                try {
+                  const text = await file.text();
+                  const parsed = JSON.parse(text);
+                  const n = getNavigationGrid().importOverrides(parsed);
+                  // eslint-disable-next-line no-console
+                  console.log(`[CollisionEditor] Imported ${n} overrides`);
+                } catch (err) {
+                  // eslint-disable-next-line no-console
+                  console.error("[CollisionEditor] Import failed:", err);
+                  alert("Falha ao importar JSON. Veja o console.");
+                }
+                ev.target.value = ""; // allow re-importing the same file
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => getNavigationGrid().undo()}
+            className="rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+            title="Desfaz a última pincelada (Ctrl+Z)"
+          >
+            Desfazer (Ctrl+Z)
+          </button>
+          <button
+            type="button"
+            onClick={() => getNavigationGrid().clearAllOverrides()}
+            className="rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+          >
+            Resetar tudo
+          </button>
+          <button
+            type="button"
+            onClick={() => setCollisionEditorActive(false)}
+            className="rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+          >
+            Fechar (E)
+          </button>
+        </div>
+      )}
     </div>
   );
 }

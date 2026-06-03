@@ -14,6 +14,10 @@ export interface AttentionToast {
   id: string;
   agentId: string | null;
   agentName: string | null;
+  /** Display name (ou label, ou ID curto) da sessão de onde o evento veio.
+   *  Mostrado em cinza embaixo do título — ajuda a saber QUAL Claude terminou
+   *  quando há múltiplas sessões rodando. */
+  sessionLabel: string | null;
   eventType: EventType;
   urgency: number;
   urgencyLevel: UrgencyLevel;
@@ -44,6 +48,7 @@ interface AttentionState {
     type: EventType;
     agentId?: string | null;
     agentName?: string | null;
+    sessionLabel?: string | null;
     taskDescription?: string | null;
     errorType?: string | null;
     message?: string | null;
@@ -78,8 +83,15 @@ function scoreEvent(eventType: EventType): {
     case "permission_request":
       return { urgency: 90, level: "critical", autoDismissMs: null };
     case "error":
-    case "stop":
       return { urgency: 70, level: "high", autoDismissMs: null };
+    case "stop":
+      // Cada turno do Claude vira um toast suave verde com auto-dismiss.
+      // Não trava na fila — apenas confirma "Claude terminou de falar".
+      return {
+        urgency: 30,
+        level: "low",
+        autoDismissMs: prefs.toastAutoDismissLow,
+      };
     case "task_completed":
       return {
         urgency: 30,
@@ -117,14 +129,26 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
     // Skip very low urgency events that aren't in our explicit list
     if (urgency <= 5) return;
 
+    // Títulos humanos por tipo (o fallback `event.type.replace(_,' ')` dava
+    // labels feios tipo "stop" / "task completed").
+    const titleByType: Partial<Record<EventType, string>> = {
+      stop: "Claude terminou",
+      task_completed: "Tarefa concluída",
+      error: "Erro",
+      permission_request: "Permissão necessária",
+      subagent_start: "Sub-agente iniciado",
+      background_task_notification: "Tarefa em background",
+    };
+
     const toast: AttentionToast = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       agentId: event.agentId ?? null,
       agentName: event.agentName ?? null,
+      sessionLabel: event.sessionLabel ?? null,
       eventType: event.type,
       urgency,
       urgencyLevel: level,
-      title: event.type.replace(/_/g, " "),
+      title: titleByType[event.type] ?? event.type.replace(/_/g, " "),
       description:
         event.taskDescription ?? event.errorType ?? event.message ?? "",
       createdAt: Date.now(),
