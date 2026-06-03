@@ -7,17 +7,20 @@ import {
   Power,
   Trash2,
   HelpCircle,
+  History,
   Settings,
   Bell,
   Map,
   Play,
   Square,
   MoreVertical,
+  StickyNote,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAttentionStore, selectUnreadCount } from "@/stores/attentionStore";
 import { useNavigationStore } from "@/stores/navigationStore";
+import { useNotesStore } from "@/stores/notesStore";
 import { useTourStore } from "@/stores/tourStore";
 import { MenuPanel } from "@/components/sidebar/panels/MenuPanel";
 
@@ -73,6 +76,9 @@ export function HeaderControls({
   const { t } = useTranslation();
   const unreadCount = useAttentionStore(selectUnreadCount);
   const openCommandBar = useAttentionStore((s) => s.openCommandBar);
+  const openHistory = useAttentionStore((s) => s.openHistory);
+  const historyCount = useAttentionStore((s) => s.toastHistory.length);
+  const openNotes = useNotesStore((s) => s.open);
   // Tour: mesma heurística da versão cca48b2 — modo "building" só se
   // estamos numa view multi-andar E há buildingConfig carregado; senão
   // "single". `startTour` é a action do tourStore (ficou órfã quando o
@@ -108,6 +114,16 @@ export function HeaderControls({
 
   return (
     <div className="flex gap-2 items-center flex-shrink-0">
+      {/* Notas — abre modal grande (Ctrl+Shift+N) */}
+      <button
+        onClick={openNotes}
+        title="Notas (Ctrl+Shift+N)"
+        className="flex items-center gap-2 px-3 py-1.5 bg-jp-gold/10 hover:bg-jp-gold/20 text-jp-gold border border-jp-gold/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
+      >
+        <StickyNote size={14} />
+        Notas
+      </button>
+
       {/* Reset — SEMPRE inline (movido pra fora do overflow per user) */}
       <button
         onClick={onReset}
@@ -149,6 +165,22 @@ export function HeaderControls({
           </span>
         </button>
       )}
+
+      {/* Histórico de notificações — sempre disponível, mostra contador
+          se houver entradas. Útil pra checar toasts que sumiram. */}
+      <button
+        onClick={openHistory}
+        title="Histórico de notificações"
+        className="relative flex items-center justify-center w-8 h-8 bg-jp-surface-3/25 hover:bg-jp-surface-3/40 text-jp-fg-muted border border-jp-border-light/30 rounded transition-colors"
+        aria-label="Histórico de notificações"
+      >
+        <History size={14} />
+        {historyCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-jp-surface-2 text-jp-fg-dim text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center border border-jp-divider-soft">
+            {historyCount > 99 ? "99+" : historyCount}
+          </span>
+        )}
+      </button>
 
       {/* Settings — SEMPRE inline (movido pra fora do overflow per user) */}
       <button

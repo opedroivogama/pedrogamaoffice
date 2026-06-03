@@ -41,12 +41,14 @@ import {
 } from "@/components/layout/StatusToast";
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
+import NotesModal from "@/components/notes/NotesModal";
 import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
 import { BuildingView } from "@/components/views/BuildingView";
 import { FloorView } from "@/components/views/FloorView";
 import { TourOverlay } from "@/components/tour/TourOverlay";
 import CommandBar from "@/components/attention/CommandBar";
+import ToastHistoryModal from "@/components/attention/ToastHistoryModal";
 import AttentionToasts from "@/components/attention/AttentionToasts";
 import AgentPopup from "@/components/attention/AgentPopup";
 import ControlBanner from "@/components/attention/ControlBanner";
@@ -55,6 +57,7 @@ import { useBossAutoWalk } from "@/hooks/useBossAutoWalk";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useLayoutStore } from "@/stores/layoutStore";
+import { useNotesStore } from "@/stores/notesStore";
 import { PanelDndProvider } from "@/components/sidebar/PanelDndProvider";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useSimulationStatus } from "@/hooks/useSimulationStatus";
@@ -296,11 +299,22 @@ export default function V2TestPage(): React.ReactNode {
   }, []);
 
   // ------------------------------------------------------------------
-  // Cmd+K / Ctrl+K command bar toggle
+  // Cmd+K / Ctrl+K command bar toggle, Ctrl+Shift+N notas
   // ------------------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreShortcut(e)) return;
+
+      // Ctrl+Shift+N abre/fecha Notas. Funciona mesmo com modal aberto pra
+      // permitir fechar pelo atalho.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        const { isOpen, open, close } = useNotesStore.getState();
+        if (isOpen) close();
+        else open();
+        return;
+      }
+
       if (document.querySelector("[role='dialog'][aria-modal='true']")) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -619,6 +633,7 @@ export default function V2TestPage(): React.ReactNode {
           Attention System
       ---------------------------------------------------------------- */}
       <CommandBar />
+      <ToastHistoryModal />
       <AttentionToasts />
       <AgentPopup />
       <ControlBanner />
@@ -627,6 +642,11 @@ export default function V2TestPage(): React.ReactNode {
           Tour Overlay
       ---------------------------------------------------------------- */}
       <TourOverlay />
+
+      {/* ----------------------------------------------------------------
+          Notas (modal grande, atalho Ctrl+Shift+N)
+      ---------------------------------------------------------------- */}
+      <NotesModal />
     </main>
   );
 }
