@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir  = Join-Path $root 'backend'
 $frontendDir = Join-Path $root 'frontend'
