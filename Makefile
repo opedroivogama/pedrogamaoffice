@@ -120,7 +120,7 @@ dev-tmux:
 		echo "Session $(TMUX_SESSION) already exists. Use 'make dev-tmux-kill' first or attach with 'tmux attach -t $(TMUX_SESSION)'"; \
 	else \
 		tmux new-session -d -s $(TMUX_SESSION) -n backend; \
-		tmux send-keys -t $(TMUX_SESSION):backend "cd $(CURDIR)/backend && make dev" Enter; \
+		tmux send-keys -t $(TMUX_SESSION):backend "cd $(CURDIR)/backend && make start" Enter; \
 		tmux new-window -t $(TMUX_SESSION) -n frontend; \
 		tmux send-keys -t $(TMUX_SESSION):frontend "cd $(CURDIR)/frontend && make dev" Enter; \
 		tmux select-window -t $(TMUX_SESSION):backend; \
@@ -134,7 +134,7 @@ dev-tmux-kill:
 dev-tmux-backend:
 	@tmux send-keys -t $(TMUX_SESSION):backend C-c 2>/dev/null || true
 	@sleep 1
-	@tmux send-keys -t $(TMUX_SESSION):backend "make dev" Enter 2>/dev/null || echo "Session not found"
+	@tmux send-keys -t $(TMUX_SESSION):backend "make start" Enter 2>/dev/null || echo "Session not found"
 
 dev-tmux-frontend:
 	@tmux send-keys -t $(TMUX_SESSION):frontend C-c 2>/dev/null || true

@@ -240,9 +240,47 @@ async def get_status() -> dict[str, bool | str | None]:
     }
 
 
+# IMPORTANTE: /ws/all PRECISA vir ANTES de /ws/{session_id}. FastAPI
+# resolve rotas WS na ordem de definição, e /ws/{session_id} matcha
+# qualquer string — inclusive "all". Se ficar antes, clientes do feed
+# global caem no handler por sessão, a lista `global_connections` nunca
+# recebe ninguém, e nenhum sprite de subagent aparece no painel "Todas".
+@app.websocket("/ws/all")
+async def websocket_global(websocket: WebSocket) -> None:
+    """Global feed: state agregado de TODAS as sessões Claude Code ativas.
+
+    Usado pelo "painel da empresa" pra mostrar subagentes de qualquer
+    terminal/ChatPanel rodando, no mesmo escritório virtual.
+    """
+    from app.api.websocket import validate_websocket_origin
+    from app.core.broadcast_service import broadcast_global_state
+
+    if not validate_websocket_origin(websocket):
+        await websocket.close(code=4003, reason="Origin not allowed")
+        return
+
+    await manager.connect_global(websocket)
+    try:
+        # Snapshot inicial — manda agora pro client desenhar a sala já cheia.
+        await broadcast_global_state()
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect_global(websocket)
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     from app.api.websocket import validate_session_id, validate_websocket_origin
+
+    # Defesa em profundidade — "all" tem handler dedicado acima. Mesmo
+    # com a ordem correta, se alguém renomear a rota global, garantimos
+    # que clientes do feed global não criem session_id="all" por engano.
+    if session_id == "all":
+        await websocket.close(code=4000, reason="Use the dedicated /ws/all endpoint")
+        return
 
     if not validate_session_id(session_id):
         await websocket.close(code=4000, reason="Invalid session ID format")

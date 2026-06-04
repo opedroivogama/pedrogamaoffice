@@ -144,16 +144,17 @@ def _restart_via_tmux(session: str) -> dict[str, str]:
 
     Spawn fire-and-forget de um bash desacoplado: espera 0.5s pra response
     sair, manda Ctrl-C pro uvicorn no pane ``backend``, espera 1.5s pelo
-    shutdown + liberação da porta 8000, e roda ``make dev`` no mesmo pane.
+    shutdown + liberação da porta 8000, e roda ``make start`` no mesmo pane.
 
     Não chamamos ``os._exit`` aqui — o Ctrl-C do tmux mata o uvicorn de
-    forma limpa, e ``make dev`` traz ele de volta com ``--reload`` ligado.
+    forma limpa, e ``make start`` traz ele de volta sem ``--reload`` (ver
+    escritorio-online-windows-gotchas item 4 — reload mente no Windows).
     """
     cmd = (
         "sleep 0.5 && "
         f"tmux send-keys -t {session}:backend C-c && "
         "sleep 1.5 && "
-        f"tmux send-keys -t {session}:backend 'make dev' Enter"
+        f"tmux send-keys -t {session}:backend 'make start' Enter"
     )
     spawn = ["bash", "-lc", cmd]
 

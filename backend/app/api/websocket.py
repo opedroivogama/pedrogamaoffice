@@ -55,6 +55,9 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[str, list[WebSocket]] = {}
         self.room_connections: dict[str, list[WebSocket]] = {}
+        # Conexões globais (/ws/all) — recebem state aggregated de todas
+        # as sessões. Usado pra "painel JP" que mostra TUDO num lugar só.
+        self.global_connections: list[WebSocket] = []
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -197,6 +200,41 @@ class ConnectionManager:
             return
 
         await self._broadcast_to_connections(message, connections, self.room_connections, room_id)
+
+    # ------------------------------------------------------------------
+    # Global (/ws/all) operations — feed unificado de todas as sessões
+    # ------------------------------------------------------------------
+
+    async def connect_global(self, websocket: WebSocket) -> None:
+        """Accept a global connection (recebe state agregado de todas as sessões)."""
+        await websocket.accept()
+        async with self._lock:
+            self.global_connections.append(websocket)
+
+    async def disconnect_global(self, websocket: WebSocket) -> None:
+        async with self._lock:
+            if websocket in self.global_connections:
+                self.global_connections.remove(websocket)
+
+    async def broadcast_global(self, message: dict[str, Any]) -> None:
+        """Broadcasta pro feed global (/ws/all)."""
+        async with self._lock:
+            connections = self.global_connections.copy()
+        if not connections:
+            return
+        failed: list[WebSocket] = []
+        for conn in connections:
+            try:
+                if conn.client_state == WebSocketState.CONNECTED:
+                    await conn.send_json(message)
+            except Exception as e:
+                logger.warning("Failed to send global WS message: %s", e)
+                failed.append(conn)
+        if failed:
+            async with self._lock:
+                for c in failed:
+                    if c in self.global_connections:
+                        self.global_connections.remove(c)
 
 
 manager = ConnectionManager()

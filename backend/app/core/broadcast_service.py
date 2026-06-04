@@ -22,6 +22,7 @@ __all__ = [
     "broadcast_event",
     "broadcast_error",
     "broadcast_room_state",
+    "broadcast_global_state",
 ]
 
 
@@ -41,6 +42,19 @@ async def broadcast_state(session_id: str, sm: StateMachine) -> None:
         },
         session_id,
     )
+    # Sempre que alguém atualiza, também notifica o feed global pra que
+    # painéis abertos em /ws/all vejam a mudança em tempo real.
+    try:
+        await broadcast_global_state()
+    except Exception as e:  # noqa: BLE001
+        # Erros no agregador não devem derrubar o broadcast principal.
+        # Usamos exception() pra capturar stack trace completo — sem ele o
+        # broadcast global pode falhar silenciosamente e nenhum sprite aparece
+        # no painel.
+        import logging
+        logging.getLogger(__name__).exception(
+            "broadcast_global_state falhou (não fatal): %s", e
+        )
 
 
 async def broadcast_event(
@@ -91,4 +105,59 @@ async def broadcast_room_state(room_id: str, orchestrator: RoomOrchestrator) -> 
             "state": merged_state.model_dump(mode="json", by_alias=True),
         },
         room_id,
+    )
+
+
+async def broadcast_global_state() -> None:
+    """Broadcast a state_update agregando agents de TODAS as sessões ativas.
+
+    Vai pro feed /ws/all. Pedro usa isso pra ver subagentes de qualquer
+    terminal Claude Code rodando ao mesmo tempo, no mesmo escritório
+    virtual. O boss usado é o da PRIMEIRA sessão (geralmente sua),
+    mas todos os agents/queues de todas as sessões aparecem.
+    """
+    # Import lazy pra evitar ciclo (event_processor importa este módulo).
+    from app.core.event_processor import event_processor
+
+    sessions = event_processor.sessions
+    if not sessions:
+        return
+
+    # Pega o primeiro state como "host" (boss + office state).
+    first_session_id, first_sm = next(iter(sessions.items()))
+    merged = first_sm.to_game_state(first_session_id)
+
+    # Une todos os agents de todas as sessões. IDs já são UUIDs (sem colisão).
+    seen_ids: set[str] = {a.id for a in merged.agents}
+    extra_arrival: list[str] = []
+    extra_departure: list[str] = []
+    for sid, sm in sessions.items():
+        if sid == first_session_id:
+            continue
+        other = sm.to_game_state(sid)
+        for agent in other.agents:
+            if agent.id in seen_ids:
+                continue
+            seen_ids.add(agent.id)
+            merged.agents.append(agent)
+        # Concatena queues sem perder ordem.
+        if other.arrival_queue:
+            extra_arrival.extend(other.arrival_queue)
+        if other.departure_queue:
+            extra_departure.extend(other.departure_queue)
+    if extra_arrival:
+        merged.arrival_queue = (merged.arrival_queue or []) + extra_arrival
+    if extra_departure:
+        merged.departure_queue = (merged.departure_queue or []) + extra_departure
+
+    # session_id no payload vira "global" pra o frontend tratar especial
+    # (ele compara com currentSessionIdRef antes de aceitar o state).
+    merged.session_id = "all"
+
+    await manager.broadcast_global(
+        {
+            "type": "state_update",
+            "timestamp": merged.last_updated.isoformat(),
+            "state": merged.model_dump(mode="json", by_alias=True),
+        }
     )
