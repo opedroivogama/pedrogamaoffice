@@ -18,29 +18,21 @@ Write-Host ''
 # ---------------------------------------------------------------------------
 # Backend (uvicorn)
 # ---------------------------------------------------------------------------
-# Idempotência forte: detecta TODOS os uvicorn:8000 rodando (não só quem ganhou
-# o bind) e mata os duplicados antes de subir. Sem isso, race conditions
-# (clique duplo no atalho, conflito com `make dev-tmux`, etc.) deixam dois
-# processos vivos competindo pela porta — clientes WS conectam num e POSTs
-# vão pro outro, broadcast morre silenciosamente. Já aconteceu duas vezes
-# hoje (ver memory escritorio-online-windows-gotchas item #7).
-$staleUvicorns = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match 'uvicorn.*app\.main:app.*8000' }
-$portOccupant = (Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue).OwningProcess
+# Idempotência simples: confere se a porta 8000 responde a HTTP. Se sim,
+# pula o spawn. Se não, sobe um novo.
+#
+# Nota: NÃO tentar matar "uvicorns duplicados" via Get-CimInstance — o
+# `uv run python -X utf8 -m uvicorn ...` cria uma árvore pai-filho onde
+# ambos os processos aparecem como python.exe na lista com a mesma
+# CommandLine. Matar o "duplicado" derruba a árvore inteira.
+$backendResponding = $false
+try {
+    $r = Invoke-WebRequest -Uri 'http://localhost:8000/api/v1/sessions' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+    if ($r.StatusCode -eq 200) { $backendResponding = $true }
+} catch { }
 
-if ($staleUvicorns.Count -gt 1) {
-    Write-Host "  Detectados $($staleUvicorns.Count) uvicorns competindo — limpando duplicados…" -ForegroundColor DarkYellow
-    foreach ($p in $staleUvicorns) {
-        if ($p.ProcessId -ne $portOccupant) {
-            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-            Write-Host "    killed zombie PID $($p.ProcessId)" -ForegroundColor DarkYellow
-        }
-    }
-}
-
-$backendUp = $null -ne (Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue)
-if ($backendUp) {
-    Write-Host '  Backend já está rodando (porta 8000 ocupada). Skipping spawn.' -ForegroundColor DarkYellow
+if ($backendResponding) {
+    Write-Host '  Backend já está respondendo na 8000. Skipping spawn.' -ForegroundColor DarkYellow
 } else {
     $backend = Start-Process -FilePath 'powershell.exe' `
         -ArgumentList @(
