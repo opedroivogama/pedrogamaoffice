@@ -135,6 +135,11 @@ interface DeskSurfacesBaseProps {
   occupiedDesks: Set<number>;
   deskTexture: Texture | null;
   keyboardTexture: Texture | null;
+  /** Quando false, pula a renderização do sprite da mesa (mantém sombra e
+   *  teclado). Usado pra delegar o sprite a um container Y-sorted superior
+   *  onde a mesa concorre por zIndex com cadeira/personagem (Pedro 2026-06-06:
+   *  permite personagem passar atrás da mesa porém na frente da cadeira). */
+  renderDeskSprite?: boolean;
 }
 
 /**
@@ -145,6 +150,7 @@ export function DeskSurfacesBase({
   occupiedDesks,
   deskTexture,
   keyboardTexture,
+  renderDeskSprite = true,
 }: DeskSurfacesBaseProps): ReactNode {
   const desks = useDeskPositions(deskCount, occupiedDesks);
 
@@ -156,8 +162,11 @@ export function DeskSurfacesBase({
               sensação de contato sem competir com o mood escuro. */}
           <ContactShadow width={150} height={24} y={92} alpha={0.18} />
           {/* Desk surface — scale 0.21 (2x do original 0.105, Pedro 2026-06-04)
-              x=-40 y=15 (deslocada pra esquerda e pra cima, alinhar com agent) */}
-          {deskTexture && (
+              x=-40 y=15 (deslocada pra esquerda e pra cima, alinhar com agent).
+              renderDeskSprite=false delega esse sprite pra container Y-sorted
+              externo (OfficeGame.tsx) — permite mesa concorrer por zIndex com
+              personagem/cadeira (passar atrás da mesa, frente da cadeira). */}
+          {renderDeskSprite && deskTexture && (
             <pixiSprite
               texture={deskTexture}
               anchor={{ x: 0.5, y: 0 }}

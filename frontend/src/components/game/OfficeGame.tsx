@@ -1452,7 +1452,10 @@ export function OfficeGame(): ReactNode {
                     />
                   )}
 
-                  {/* Y-sorted layer: chairs and agents sorted by Y position (higher Y = in front) */}
+                  {/* Y-sorted layer: chairs, DESKS and agents sorted by Y
+                      position (higher Y = in front). Mesa entrou aqui (Pedro
+                      2026-06-06) pra permitir personagem passar atrás dela
+                      mas na frente da cadeira. */}
                   <pixiContainer sortableChildren={true}>
                     {/* Desk chairs - zIndex based on chair seat back */}
                     {deskPositions.map((desk, i) => {
@@ -1476,6 +1479,30 @@ export function OfficeGame(): ReactNode {
                         </pixiContainer>
                       );
                     })}
+
+                    {/* Mesas — zIndex = desk.y + 70 (entre cadeira em
+                        desk.y+20 e personagem em pé na frente). Personagem
+                        cujo pé.y < zIndex da mesa fica ATRÁS dela; pé.y >
+                        zIndex fica NA FRENTE. Sprite idêntico ao que vivia
+                        em DeskSurfacesBase. */}
+                    {deskPositions.map((desk, i) => (
+                      <pixiContainer
+                        key={`desk-${i}`}
+                        x={desk.x}
+                        y={desk.y}
+                        zIndex={desk.y + 70}
+                      >
+                        {textures.desk && (
+                          <pixiSprite
+                            texture={textures.desk}
+                            anchor={{ x: 0.5, y: 0 }}
+                            x={-25}
+                            y={-5}
+                            scale={0.21}
+                          />
+                        )}
+                      </pixiContainer>
+                    ))}
 
                     {/* Agents outside elevator - zIndex based on feet Y position */}
                     {Array.from(agents.values())
@@ -1523,12 +1550,15 @@ export function OfficeGame(): ReactNode {
                       ))}
                   </pixiContainer>
 
-                  {/* Desk surfaces and keyboards (behind agent arms) */}
+                  {/* Sombras das mesas (always-back) + teclado. Sprite da
+                      mesa em si desligado aqui — vai pro container Y-sorted
+                      abaixo pra concorrer com personagem/cadeira por zIndex. */}
                   <DeskSurfacesBase
                     deskCount={deskCount}
                     occupiedDesks={occupiedDesks}
                     deskTexture={textures.desk}
                     keyboardTexture={textures.keyboard}
+                    renderDeskSprite={false}
                   />
 
                   {/* Agent arms + headsets removed when using character sprite texture */}
