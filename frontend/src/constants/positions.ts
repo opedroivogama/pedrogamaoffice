@@ -17,7 +17,7 @@ export const EMPLOYEE_OF_MONTH_POSITION = { x: 184, y: 115 };
 /** City window position */
 export const CITY_WINDOW_POSITION = { x: 319, y: 95 };
 
-/** Safety sign position */
+/** Safety sign position — atualmente não renderizada em OfficeGame.tsx; mantida pra reativação rápida. */
 export const SAFETY_SIGN_POSITION = { x: 1120, y: 105 };
 
 /** Wall clock position */

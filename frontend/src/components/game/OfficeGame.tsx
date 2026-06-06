@@ -80,7 +80,6 @@ import {
 import {
   EMPLOYEE_OF_MONTH_POSITION,
   CITY_WINDOW_POSITION,
-  SAFETY_SIGN_POSITION,
   WALL_CLOCK_POSITION,
   WALL_OUTLET_POSITION,
   WHITEBOARD_POSITION,
@@ -124,7 +123,6 @@ import {
 import { TrashCanSprite } from "./TrashCanSprite";
 import { WallClock } from "./WallClock";
 import { Whiteboard } from "./Whiteboard";
-import { SafetySign } from "./SafetySign";
 import { CityWindow } from "./CityWindow";
 import { WallCalendar } from "./WallCalendar";
 import { Elevator, isAgentInElevator } from "./Elevator";
@@ -1323,12 +1321,9 @@ export function OfficeGame(): ReactNode {
                     />
                     <CityWindow />
                   </pixiContainer>
-                  <pixiContainer
-                    x={SAFETY_SIGN_POSITION.x}
-                    y={SAFETY_SIGN_POSITION.y}
-                  >
-                    <SafetySign />
-                  </pixiContainer>
+                  {/* SafetySign desativada visualmente — componente, posição
+                      e doc preservados. Pra reativar, importar SafetySign +
+                      SAFETY_SIGN_POSITION e devolver o <pixiContainer> aqui. */}
                   <pixiContainer
                     x={WALL_CLOCK_POSITION.x}
                     y={WALL_CLOCK_POSITION.y}

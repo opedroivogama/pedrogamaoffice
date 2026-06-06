@@ -172,7 +172,7 @@ graph LR
 | `components/game/CityWindow.tsx` | City skyline with real-time day/night cycle |
 | `components/game/EmployeeOfTheMonth.tsx` | Employee of the Month wall poster |
 | `components/game/Whiteboard.tsx` | Multi-mode display with 12 visualization modes |
-| `components/game/SafetySign.tsx` | Tool counter since last compaction |
+| `components/game/SafetySign.tsx` | Tool counter since last compaction (componente preservado, mas desativado visualmente em `OfficeGame.tsx`; `SAFETY_SIGN_POSITION` ainda exportado em `constants/positions.ts` pra reativação rápida) |
 | `components/game/PrinterStation.tsx` | Animated printer for report generation |
 | `components/game/Elevator.tsx` | Agent arrival/departure elevator with doors |
 | `components/game/WallClock.tsx` | Clickable wall clock (analog/digital modes) |
