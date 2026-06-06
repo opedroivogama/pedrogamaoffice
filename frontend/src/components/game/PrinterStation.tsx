@@ -9,6 +9,7 @@
 
 import { type ReactNode, useState, useEffect, useRef } from "react";
 import { Graphics, Texture } from "pixi.js";
+import { ContactShadow } from "./ContactShadow";
 
 interface PrinterStationProps {
   /** X position of the printer station */
@@ -19,6 +20,9 @@ interface PrinterStationProps {
   isPrinting: boolean;
   /** Desk texture for the printer stand */
   deskTexture: Texture | null;
+  /** Mesinha de canto nova (corner-table.png). Quando passada, sobrescreve
+   *  o desk reduzido. */
+  cornerTableTexture?: Texture | null;
   /** Printer texture */
   printerTexture: Texture | null;
 }
@@ -111,6 +115,7 @@ export function PrinterStation({
   y,
   isPrinting,
   deskTexture,
+  cornerTableTexture,
   printerTexture,
 }: PrinterStationProps): ReactNode {
   const printProgress = usePrintAnimation(isPrinting);
@@ -124,14 +129,24 @@ export function PrinterStation({
 
   return (
     <pixiContainer x={x} y={y}>
-      {/* Small desk as printer stand (60% width, full height) */}
-      {deskTexture && (
+      {/* Drop shadow sob a mesa do printer station. */}
+      <ContactShadow width={88} height={22} y={62} alpha={0.4} />
+
+      {/* Mesinha de canto — usa o sprite novo (corner-table.png, 720x719) quando
+          disponível. Fallback pra desk.png antiga reduzida. */}
+      {cornerTableTexture ? (
+        <pixiSprite
+          texture={cornerTableTexture}
+          anchor={{ x: 0.5, y: 0 }}
+          scale={0.1}
+        />
+      ) : deskTexture ? (
         <pixiSprite
           texture={deskTexture}
           anchor={{ x: 0.5, y: 0 }}
           scale={{ x: 0.105 * 0.6, y: 0.105 }}
         />
-      )}
+      ) : null}
 
       {/* Printer (on top of desk) */}
       {printerTexture && (

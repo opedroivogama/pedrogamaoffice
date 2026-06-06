@@ -4,11 +4,15 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useTick } from "@pixi/react";
 import { type Graphics, type Texture } from "pixi.js";
 import { useRadioStore } from "@/stores/radioStore";
+import { ContactShadow } from "./ContactShadow";
 
 interface RadioSpriteProps {
   x: number;
   y: number;
+  /** Mesa pequena que serve de stand pro rádio. Quando vier `cornerTableTexture`,
+   *  ela tem prioridade (arte nova de mesa de madeira). `deskTexture` é fallback. */
   deskTexture: Texture | null;
+  cornerTableTexture?: Texture | null;
   radioTexture?: Texture | null;
 }
 
@@ -169,6 +173,7 @@ export function RadioSprite({
   x,
   y,
   deskTexture,
+  cornerTableTexture,
   radioTexture,
 }: RadioSpriteProps): ReactNode {
   const isPlaying = useRadioStore((s) => s.isPlaying);
@@ -208,22 +213,37 @@ export function RadioSprite({
 
   return (
     <pixiContainer x={x} y={y} zIndex={y}>
-      {/* Small desk as radio stand (same scale as PrinterStation) */}
-      {deskTexture && (
+      {/* Drop shadow sob a mesa do rádio. */}
+      <ContactShadow width={88} height={22} y={62} alpha={0.4} />
+
+      {/* Mesinha de canto — usa o sprite novo (corner-table.png, 720x719) quando
+          disponível. Scale 0.05 dá ~36px de largura, perto do tamanho da
+          desk antiga reduzida. Fallback pra desk.png antiga se ainda não
+          carregou. */}
+      {cornerTableTexture ? (
+        <pixiSprite
+          texture={cornerTableTexture}
+          anchor={{ x: 0.5, y: 0 }}
+          scale={0.1}
+        />
+      ) : deskTexture ? (
         <pixiSprite
           texture={deskTexture}
           anchor={{ x: 0.5, y: 0 }}
           scale={{ x: 0.105 * 0.6, y: 0.105 }}
         />
-      )}
+      ) : null}
 
-      {/* Blue isometric radio sprite */}
+      {/* Blue isometric radio sprite. Scale 0.0992 = 2× o tamanho original.
+          anchor.y=0.79 = base REAL do rádio (medida no PNG): a imagem tem
+          261px de padding transparente abaixo do rádio, então 0.85 estava
+          fazendo ele flutuar. */}
       {radioTexture ? (
         <pixiSprite
           texture={radioTexture}
-          anchor={{ x: 0.5, y: 0.85 }}
+          anchor={{ x: 0.5, y: 0.79 }}
           y={18 + bob}
-          scale={0.16}
+          scale={0.0992}
         />
       ) : (
         <pixiContainer y={15 + bob}>

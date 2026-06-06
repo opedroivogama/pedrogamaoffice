@@ -10,6 +10,8 @@
 import { type ReactNode, useMemo } from "react";
 import { Texture } from "pixi.js";
 import { DeskMarquee } from "./DeskMarquee";
+import { ContactShadow } from "./ContactShadow";
+import { LightGlow } from "./LightGlow";
 
 // ============================================================================
 // TYPES
@@ -39,7 +41,12 @@ type DeskItem =
 // Desk grid layout
 const ROW_SIZE = 4;
 const DESK_START_X = 256;
-const DESK_START_Y = 408;
+// Subido de 408 → 388 (Pedro 2026-06-06) — mesa estava sendo cortada
+// pelo limite inferior da sala. Sobe linhas 0 e 1 visualmente; cadeiras
+// acompanham porque consomem o mesmo useDeskPositions. Pathfinding e
+// chairs.ts (sit positions) seguem com Y antigo — tolerância de 30px no
+// findNearestChair absorve o desalinhamento.
+const DESK_START_Y = 388;
 const DESK_SPACING_X = 256;
 const DESK_SPACING_Y = 192;
 
@@ -145,17 +152,23 @@ export function DeskSurfacesBase({
     <>
       {desks.map((desk, i) => (
         <pixiContainer key={i} x={desk.x} y={desk.y}>
-          {/* Desk surface */}
+          {/* Drop shadow sob a mesa. Alpha 0.18 — discreto pra dar
+              sensação de contato sem competir com o mood escuro. */}
+          <ContactShadow width={150} height={24} y={92} alpha={0.18} />
+          {/* Desk surface — scale 0.21 (2x do original 0.105, Pedro 2026-06-04)
+              x=-40 y=15 (deslocada pra esquerda e pra cima, alinhar com agent) */}
           {deskTexture && (
             <pixiSprite
               texture={deskTexture}
               anchor={{ x: 0.5, y: 0 }}
-              y={30}
-              scale={0.105}
+              x={-25}
+              y={-5}
+              scale={0.21}
             />
           )}
-          {/* Keyboard - front of desk surface (near chair, agent types here) */}
-          {keyboardTexture && (
+          {/* Keyboard - DESABILITADO (Pedro pediu sala sem computador, 2026-06-04).
+              Pra reativar, troca `false &&` por só o `keyboardTexture &&`. */}
+          {false && keyboardTexture && (
             <pixiSprite
               texture={keyboardTexture}
               anchor={0.5}
@@ -208,89 +221,56 @@ export function DeskSurfacesTop({
     <>
       {desks.map((desk, i) => (
         <pixiContainer key={i} x={desk.x} y={desk.y}>
-          {/* Monitor - back of desk surface (far from chair) */}
-          {monitorTexture && (
-            <pixiSprite
-              texture={monitorTexture}
-              anchor={0.5}
-              x={-45}
-              y={27}
-              scale={0.08}
-            />
+          {/* Monitor + glow LCD - DESABILITADO (Pedro pediu sala sem computador,
+              2026-06-04). Pra reativar, troca `false &&` por só `monitorTexture &&`. */}
+          {false && monitorTexture && (
+            <>
+              {/* Glow azul-acinzentado da tela LCD ligada. */}
+              <LightGlow
+                radiusX={36}
+                radiusY={22}
+                color={0x99c6ff}
+                alpha={0.35}
+                blurStrength={14}
+                x={-45}
+                y={22}
+                blendMode="add"
+              />
+              <pixiSprite
+                texture={monitorTexture}
+                anchor={0.5}
+                x={-45}
+                y={27}
+                scale={0.08}
+              />
+            </>
           )}
-          {/* Desk accessory - right corner, cycles through items */}
-          {getDeskItem(i) === "mug" && coffeeMugTexture && (
-            <pixiSprite
-              texture={coffeeMugTexture}
-              anchor={0.5}
-              x={50}
-              y={40}
-              scale={0.025}
-              tint={ACCESSORY_TINTS[i % ACCESSORY_TINTS.length]}
-            />
+          {/* Acessórios das mesas DESABILITADOS (Pedro 2026-06-04 — mesa
+              nova já tem computador integrado, sem mais bibelôs).
+              Pra reativar, troca `false &&` por só a checagem original. */}
+          {false && getDeskItem(i) === "mug" && coffeeMugTexture && (
+            <pixiSprite texture={coffeeMugTexture} anchor={0.5} x={50} y={40} scale={0.025} tint={ACCESSORY_TINTS[i % ACCESSORY_TINTS.length]} />
           )}
-          {getDeskItem(i) === "stapler" && staplerTexture && (
-            <pixiSprite
-              texture={staplerTexture}
-              anchor={0.5}
-              x={50}
-              y={43}
-              scale={0.19}
-            />
+          {false && getDeskItem(i) === "stapler" && staplerTexture && (
+            <pixiSprite texture={staplerTexture} anchor={0.5} x={50} y={43} scale={0.19} />
           )}
-          {getDeskItem(i) === "lamp" && deskLampTexture && (
-            <pixiSprite
-              texture={deskLampTexture}
-              anchor={0.5}
-              x={50}
-              y={29}
-              scale={0.35}
-            />
+          {false && getDeskItem(i) === "lamp" && deskLampTexture && (
+            <pixiSprite texture={deskLampTexture} anchor={0.5} x={50} y={29} scale={0.35} />
           )}
-          {getDeskItem(i) === "penholder" && penHolderTexture && (
-            <pixiSprite
-              texture={penHolderTexture}
-              anchor={0.5}
-              x={54}
-              y={38}
-              scale={0.22}
-            />
+          {false && getDeskItem(i) === "penholder" && penHolderTexture && (
+            <pixiSprite texture={penHolderTexture} anchor={0.5} x={54} y={38} scale={0.22} />
           )}
-          {getDeskItem(i) === "8ball" && magic8BallTexture && (
-            <pixiSprite
-              texture={magic8BallTexture}
-              anchor={0.5}
-              x={54}
-              y={42}
-              scale={0.162}
-            />
+          {false && getDeskItem(i) === "8ball" && magic8BallTexture && (
+            <pixiSprite texture={magic8BallTexture} anchor={0.5} x={54} y={42} scale={0.162} />
           )}
-          {getDeskItem(i) === "rubiks" && rubiksCubeTexture && (
-            <pixiSprite
-              texture={rubiksCubeTexture}
-              anchor={0.5}
-              x={52}
-              y={42}
-              scale={0.16}
-            />
+          {false && getDeskItem(i) === "rubiks" && rubiksCubeTexture && (
+            <pixiSprite texture={rubiksCubeTexture} anchor={0.5} x={52} y={42} scale={0.16} />
           )}
-          {getDeskItem(i) === "duck" && rubberDuckTexture && (
-            <pixiSprite
-              texture={rubberDuckTexture}
-              anchor={0.5}
-              x={52}
-              y={42}
-              scale={0.16}
-            />
+          {false && getDeskItem(i) === "duck" && rubberDuckTexture && (
+            <pixiSprite texture={rubberDuckTexture} anchor={0.5} x={52} y={42} scale={0.16} />
           )}
-          {getDeskItem(i) === "thermos" && thermosTexture && (
-            <pixiSprite
-              texture={thermosTexture}
-              anchor={0.5}
-              x={52}
-              y={40}
-              scale={0.36}
-            />
+          {false && getDeskItem(i) === "thermos" && thermosTexture && (
+            <pixiSprite texture={thermosTexture} anchor={0.5} x={52} y={40} scale={0.36} />
           )}
           {/* Task marquee on desk surface - only for occupied desks */}
           <DeskMarquee text={deskTasks.get(i + 1) ?? ""} />

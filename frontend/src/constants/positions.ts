@@ -8,29 +8,32 @@
 // WALL DECORATIONS
 // ============================================================================
 
+// Topbar elements descidos +65px total (+40 inicial + 10 + 15) pra
+// acompanhar a parede de 385px de altura.
+
 /** Employee of the Month frame position */
-export const EMPLOYEE_OF_MONTH_POSITION = { x: 184, y: 50 };
+export const EMPLOYEE_OF_MONTH_POSITION = { x: 184, y: 115 };
 
 /** City window position */
-export const CITY_WINDOW_POSITION = { x: 319, y: 30 };
+export const CITY_WINDOW_POSITION = { x: 319, y: 95 };
 
 /** Safety sign position */
-export const SAFETY_SIGN_POSITION = { x: 1120, y: 40 };
+export const SAFETY_SIGN_POSITION = { x: 1120, y: 105 };
 
 /** Wall clock position */
-export const WALL_CLOCK_POSITION = { x: 581, y: 80 };
+export const WALL_CLOCK_POSITION = { x: 581, y: 145 };
 
 /** Wall outlet position (below clock) */
-export const WALL_OUTLET_POSITION = { x: 581, y: 209 };
+export const WALL_OUTLET_POSITION = { x: 581, y: 274 };
 
 /** Whiteboard position */
-export const WHITEBOARD_POSITION = { x: 641, y: 11 };
+export const WHITEBOARD_POSITION = { x: 641, y: 76 };
 
 /** Water cooler position */
-export const WATER_COOLER_POSITION = { x: 1010, y: 200 };
+export const WATER_COOLER_POSITION = { x: 1010, y: 265 };
 
 /** Coffee machine position (to the right of water cooler) */
-export const COFFEE_MACHINE_POSITION = { x: 1081, y: 191 };
+export const COFFEE_MACHINE_POSITION = { x: 1081, y: 256 };
 
 // ============================================================================
 // FLOOR ELEMENTS

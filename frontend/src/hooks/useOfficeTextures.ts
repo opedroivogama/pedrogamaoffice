@@ -12,6 +12,7 @@ export interface OfficeTextures {
   // Floor
   floorTile: Texture | null;
   bossRug: Texture | null;
+  wall: Texture | null;
 
   // Furniture
   waterCooler: Texture | null;
@@ -19,6 +20,10 @@ export interface OfficeTextures {
   plant: Texture | null;
   chair: Texture | null;
   desk: Texture | null;
+  /** Mesinha de canto usada como base pro rádio e pro printer. Sprite
+   *  separado do `desk` pra permitir arte diferente sem afetar as desks
+   *  de trabalho. */
+  cornerTable: Texture | null;
   keyboard: Texture | null;
   monitor: Texture | null;
   phone: Texture | null;
@@ -31,6 +36,7 @@ export interface OfficeTextures {
 
   // Wall items
   wallOutlet: Texture | null;
+  whiteboard: Texture | null;
 
   // Agent accessories
   headset: Texture | null;
@@ -53,21 +59,24 @@ interface UseOfficeTexturesResult {
 }
 
 const TEXTURE_PATHS: Record<keyof OfficeTextures, string> = {
-  floorTile: "/sprites/floor-tile.png",
+  floorTile: "/sprites/floor-carpet.png?v=17",
   bossRug: "/sprites/boss-rug.png",
+  wall: "/sprites/wall.png?v=5",
   waterCooler: "/sprites/watercooler.png",
   coffeeMachine: "/sprites/coffee-machine.png",
   plant: "/sprites/plant.png",
   chair: "/sprites/chair.png",
   desk: "/sprites/desk.png",
+  cornerTable: "/sprites/corner-table.png?v=3",
   keyboard: "/sprites/keyboard_back.png",
   monitor: "/sprites/monitor_back.png",
   phone: "/sprites/phone.png",
   printer: "/sprites/old-printer.png",
-  radio: "/sprites/radio.png?v=4",
+  radio: "/sprites/radio.png?v=6",
   elevatorFrame: "/sprites/elevator_frame.png",
   elevatorDoor: "/sprites/elevator_door.png",
   wallOutlet: "/sprites/wall-outlet.png",
+  whiteboard: "/sprites/whiteboard.png?v=1",
   headset: "/sprites/headset_small.png",
   sunglasses: "/sprites/sunglasses.png",
   coffeeMug: "/sprites/coffee-mug.png",
@@ -83,11 +92,13 @@ const TEXTURE_PATHS: Record<keyof OfficeTextures, string> = {
 const EMPTY_TEXTURES: OfficeTextures = {
   floorTile: null,
   bossRug: null,
+  wall: null,
   waterCooler: null,
   coffeeMachine: null,
   plant: null,
   chair: null,
   desk: null,
+  cornerTable: null,
   keyboard: null,
   monitor: null,
   phone: null,
@@ -96,6 +107,7 @@ const EMPTY_TEXTURES: OfficeTextures = {
   elevatorFrame: null,
   elevatorDoor: null,
   wallOutlet: null,
+  whiteboard: null,
   headset: null,
   sunglasses: null,
   coffeeMug: null,
@@ -126,9 +138,15 @@ export function useOfficeTextures(): UseOfficeTexturesResult {
           paths.map((path) => Assets.load(path)),
         );
 
+        // Rádio é arte renderizada (não pixel art) e é downscaled de 1254px
+        // pra ~125px — força scaleMode linear pra antialiasing suave.
         const textureMap = keys.reduce(
           (acc, key, index) => {
-            acc[key] = loadedTextures[index];
+            const tex = loadedTextures[index];
+            if ((key === "radio" || key === "cornerTable") && tex?.source) {
+              tex.source.scaleMode = "linear";
+            }
+            acc[key] = tex;
             return acc;
           },
           {} as Record<keyof OfficeTextures, Texture>,

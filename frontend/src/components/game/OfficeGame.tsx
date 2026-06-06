@@ -20,6 +20,7 @@ import {
   Application as PixiApplication,
   Texture,
   Rectangle,
+  ColorMatrixFilter,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
@@ -62,10 +63,12 @@ import { useSimulationStatus } from "@/hooks/useSimulationStatus";
 import {
   usePedroSprites,
   directionFromDelta,
-  type PedroDirectionalTextures,
+  type PedroDirectionalIdleFrames,
   type PedroDirectionalWalkFrames,
   type Direction8,
 } from "@/hooks/usePedroSprites";
+import { useGestorTrafegoSprites } from "@/hooks/useGestorTrafegoSprites";
+import { usePedroSamuraiSprites } from "@/hooks/usePedroSamuraiSprites";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Plumbob } from "@/components/game/Plumbob";
@@ -102,6 +105,9 @@ import {
   MobileBoss,
   WorkIndicator,
   CLAUDIUS_WORK_INDICATOR_GAP,
+  SECONDARY_IDLE_PERIOD_S,
+  SECONDARY_IDLE_DURATION_S,
+  SECONDARY_IDLE_AMPLITUDE,
 } from "./BossSprite";
 import { ICON_MAP } from "./shared/iconMap";
 import { useNavigationStore } from "@/stores/navigationStore";
@@ -120,10 +126,12 @@ import { WallClock } from "./WallClock";
 import { Whiteboard } from "./Whiteboard";
 import { SafetySign } from "./SafetySign";
 import { CityWindow } from "./CityWindow";
-import { EmployeeOfTheMonth } from "./EmployeeOfTheMonth";
+import { WallCalendar } from "./WallCalendar";
 import { Elevator, isAgentInElevator } from "./Elevator";
 import { PrinterStation } from "./PrinterStation";
 import { RadioSprite } from "./RadioSprite";
+import { ContactShadow } from "./ContactShadow";
+import { LightGlow } from "./LightGlow";
 import { DebugOverlays } from "./DebugOverlays";
 import { CollisionEditor, type PaintMode } from "./CollisionEditor";
 import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
@@ -292,6 +300,9 @@ function WanderingBoss({
     bossBackendState === "working" ||
     bossBackendState === "delegating" ||
     bossBackendState === "receiving";
+  // Plumbob aparece quando Claudius está sendo dirigido (clicado pra controlar).
+  // Mesmo flag usado em BossSprite.tsx pra versão sentada.
+  const isControlled = useGameStore((s) => s.controlledEntityId === "boss");
 
   const prevPosRef = useRef<{ x: number; y: number } | null>(null);
   const lastMoveTsRef = useRef<number>(0);
@@ -335,6 +346,15 @@ function WanderingBoss({
   // Effective facing: prefer the explicit override (Shift+arrow), fall back
   // to the delta-detected local state.
   const effectiveFacing = bossFacingOverride ?? facing;
+
+  // Idle secundário (suspiro/alongamento) — só conta quando parado, pois
+  // idleTime só acumula nesses momentos. Aplicado como scale.y suave.
+  const secondaryPhase = (idleTime / 3) % SECONDARY_IDLE_PERIOD_S;
+  const inSecondaryIdle = !isMoving && secondaryPhase < SECONDARY_IDLE_DURATION_S;
+  const secondaryStretchY = inSecondaryIdle
+    ? 1 + SECONDARY_IDLE_AMPLITUDE *
+      Math.sin((secondaryPhase / SECONDARY_IDLE_DURATION_S) * Math.PI)
+    : 1;
 
   // Choose texture + horizontal flip per direction.
   let texture: Texture | null = textures.idle;
@@ -393,16 +413,18 @@ function WanderingBoss({
         y={chair.deskTopY}
         zIndex={chair.deskTopY - 1}
       >
-        <pixiSprite
-          texture={seatedTexture}
-          anchor={{ x: 0.5, y: 1 }}
-          x={0}
-          y={0}
-          width={128}
-          height={seatedHeight}
-          tint={tint}
-        />
-        <pixiContainer y={-seatedHeight - 19}>
+        <pixiContainer scale={{ x: 1, y: secondaryStretchY }}>
+          <pixiSprite
+            texture={seatedTexture}
+            anchor={{ x: 0.5, y: 1 }}
+            x={0}
+            y={0}
+            width={128}
+            height={seatedHeight}
+            tint={tint}
+          />
+        </pixiContainer>
+        <pixiContainer y={-seatedHeight - 59}>
           <pixiGraphics
             draw={(g) => {
               g.clear();
@@ -423,22 +445,31 @@ function WanderingBoss({
             }}
           />
         </pixiContainer>
+        {/* Plumbob sentado — mesma distância badge↔plumbob (38px) usada no
+            estado em pé (badge=-187, plumbob=-225). Mantém continuidade
+            visual quando Claudius senta enquanto está sendo controlado. */}
+        {isControlled && <Plumbob y={-seatedHeight - 97} />}
       </pixiContainer>
     );
   }
 
   return (
     <pixiContainer x={position.x} y={position.y} zIndex={position.y}>
-      <pixiSprite
-        texture={texture}
-        anchor={{ x: 0.5, y: 1 }}
-        x={0}
-        y={0}
-        width={128}
-        height={128}
-        scale={{ x: flipX ? -1 : 1, y: 1 }}
-        tint={tint}
-      />
+      {/* Outer scale.y faz o stretch do idle secundário sem interferir no
+          flip horizontal que continua no sprite (scale.x). Wrap só envolve
+          o sprite — badge e WorkIndicator ficam fora pra não stretchar. */}
+      <pixiContainer scale={{ x: 1, y: secondaryStretchY }}>
+        <pixiSprite
+          texture={texture}
+          anchor={{ x: 0.5, y: 1 }}
+          x={0}
+          y={0}
+          width={128}
+          height={128}
+          scale={{ x: flipX ? -1 : 1, y: 1 }}
+          tint={tint}
+        />
+      </pixiContainer>
       {/* Badge "Claudius" — mesmo offset usado pela badge sentado em
           BossSprite.tsx (y=-187), pra distância cabeça-pill consistente
           entre andando e sentado. 3px mais perto da cabeça do que a versão
@@ -475,6 +506,10 @@ function WanderingBoss({
           <WorkIndicator />
         </pixiContainer>
       )}
+      {/* Sims-style plumbob — flutua acima da badge enquanto Claudius está
+          sendo controlado. Badge em y=-187, plumbob ~38px acima do topo
+          da pill. */}
+      {isControlled && <Plumbob y={-225} />}
     </pixiContainer>
   );
 }
@@ -501,9 +536,10 @@ interface UserAvatarProps {
    *  empty top of the canvas. Pedro's PEDRO/rotations/south.png is 228×228
    *  with the head starting at y=58 → ratio ≈ 0.254. */
   topPaddingRatio?: number;
-  /** Optional per-direction textures. When provided, the avatar swaps texture
-   *  based on movement direction; when idle, keeps the last facing. */
-  directionalTextures?: PedroDirectionalTextures;
+  /** Optional per-direction idle frames. Array length 1 = static rotation
+   *  (legacy behaviour). Length > 1 = breathing-idle, cycled at ~5 fps when
+   *  the avatar isn't moving. */
+  directionalTextures?: PedroDirectionalIdleFrames;
   /** Optional per-direction walk-cycle frames. When provided AND the avatar
    *  is actively moving, cycle through these frames; otherwise fall back to
    *  the idle directional texture. */
@@ -511,6 +547,16 @@ interface UserAvatarProps {
   /** Quando false, o balão de fala não é renderizado aqui — o caller desenha
    *  numa layer top-level pra garantir que fica acima de outros personagens. */
   renderBubble?: boolean;
+  /** Duração de cada frame do idle em ms. Default 200 (~5fps). Aumentar pra
+   *  desacelerar a respiração quando o personagem tem muitos frames de idle. */
+  idleFrameDurationMs?: number;
+  /** Quando true, desenha uma sombra elíptica de contato sob os pés (só no
+   *  estado em pé — no sentado o desk cobriria). Default false pra preservar
+   *  visual atual de Pedro/Estagiário; ativado pontualmente em sprites slim
+   *  que ficam "flutuando" sem sombra (ex.: Gestor de Tráfego). */
+  withShadow?: boolean;
+  /** Largura da elipse de sombra (px). Default 80 — compatível com size=256. */
+  shadowWidth?: number;
 }
 
 // How long a Pedro/Estagiário speech bubble stays on screen (ms).
@@ -525,6 +571,9 @@ function UserAvatar({
   directionalTextures,
   walkFrames,
   renderBubble = true,
+  idleFrameDurationMs = 200,
+  withShadow = false,
+  shadowWidth = 80,
 }: UserAvatarProps): ReactNode {
   const position = useGameStore((s) => s.userAvatarPositions.get(id));
   const controlledEntityId = useGameStore((s) => s.controlledEntityId);
@@ -560,26 +609,38 @@ function UserAvatar({
     (facingOverride as Direction8 | undefined) ?? deltaFacing;
 
   // Walk-cycle frame index. ~140ms per frame. Only advances while moving.
+  // Idle-cycle frame index. ~200ms per frame (~5fps) — respiração lenta.
+  // Only advances while parado.
   const [walkFrameIdx, setWalkFrameIdx] = useState(0);
+  const [idleFrameIdx, setIdleFrameIdx] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
   useTick((ticker) => {
     const now = performance.now();
     const moving = now - lastMoveTsRef.current < 120;
     if (moving !== isMoving) setIsMoving(moving);
-    if (!moving) return;
-    setWalkFrameIdx((idx) => {
-      const next = idx + ticker.deltaMS / 140;
-      return next;
-    });
+    if (moving) {
+      setWalkFrameIdx((idx) => idx + ticker.deltaMS / 140);
+    } else {
+      setIdleFrameIdx((idx) => idx + ticker.deltaMS / idleFrameDurationMs);
+    }
   });
 
-  // Choose the active texture: walk frame > idle direction > fallback.
-  let activeTexture: Texture | null = directionalTextures?.[facing] ?? texture;
+  // Choose the active texture: walk frame > idle frame > fallback.
+  let activeTexture: Texture | null = texture;
   if (isMoving && walkFrames) {
     const frames = walkFrames[facing];
     if (frames && frames.length > 0) {
       const idx = Math.floor(walkFrameIdx) % frames.length;
       activeTexture = frames[idx];
+    } else {
+      const idleFrames = directionalTextures?.[facing];
+      if (idleFrames && idleFrames.length > 0) activeTexture = idleFrames[0];
+    }
+  } else {
+    const idleFrames = directionalTextures?.[facing];
+    if (idleFrames && idleFrames.length > 0) {
+      const idx = Math.floor(idleFrameIdx) % idleFrames.length;
+      activeTexture = idleFrames[idx];
     }
   }
 
@@ -659,7 +720,9 @@ function UserAvatar({
             }}
           />
         </pixiContainer>
-        {isControlled && <Plumbob y={-seatedRenderH - 36} />}
+        {/* Mesma distância badge↔plumbob (62px) usada no estado em pé do
+            UserAvatar, pra continuidade visual quando o avatar senta. */}
+        {isControlled && <Plumbob y={-seatedRenderH - 70} />}
       </pixiContainer>
     );
   }
@@ -672,6 +735,13 @@ function UserAvatar({
       onPointerTap={handleTap}
       interactive={clickToFocusEnabled}
     >
+      {/* Sombra elíptica opt-in sob os pés — renderizada ANTES do sprite
+          pra ficar atrás. Anchor do sprite é y:1; y=-44 puxa a elipse pra
+          junto da base do chibi (sprites com padding inferior ficam
+          "flutuando" se a sombra ficar no y=0 do container). */}
+      {withShadow && (
+        <ContactShadow width={shadowWidth} y={-71} alpha={0.245} />
+      )}
       {/* Static full body — no shadow, no breathing animation.
           When directionalTextures is provided, swap based on movement. */}
       <pixiSprite
@@ -850,8 +920,12 @@ export function OfficeGame(): ReactNode {
     aiSilverBackStep2: aiSilverBackStep2Texture,
     aiSilverIdleFrames,
   } = useDefaultCharacterTexture();
-  const { idle: pedroDirectionalTextures, walk: pedroWalkFrames } =
+  const { idle: pedroIdleFrames, walk: pedroWalkFrames } =
     usePedroSprites();
+  const { idle: gestorIdleFrames, walk: gestorWalkFrames } =
+    useGestorTrafegoSprites();
+  const { idle: samuraiIdleFrames, walk: samuraiWalkFrames } =
+    usePedroSamuraiSprites();
 
   // Start animation system
   useAnimationSystem();
@@ -1005,11 +1079,13 @@ export function OfficeGame(): ReactNode {
   useEffect(() => {
     const update = () => {
       const h = new Date().getHours();
-      if (h >= 6 && h < 8) setAmbient({ color: 0xffa080, alpha: 0.12 });
-      else if (h >= 8 && h < 17) setAmbient({ color: 0xfff5e0, alpha: 0.04 });
-      else if (h >= 17 && h < 19) setAmbient({ color: 0xff7030, alpha: 0.18 });
-      else if (h >= 19 && h < 22) setAmbient({ color: 0x5868a0, alpha: 0.22 });
-      else setAmbient({ color: 0x101830, alpha: 0.35 });
+      // Cores mais saturadas e alphas maiores — com multiply blend mode
+      // o efeito é color grading (não overlay translúcido).
+      if (h >= 6 && h < 8) setAmbient({ color: 0xffc8a0, alpha: 0.35 });
+      else if (h >= 8 && h < 17) setAmbient({ color: 0xfff8e0, alpha: 0.15 });
+      else if (h >= 17 && h < 19) setAmbient({ color: 0xff8848, alpha: 0.45 });
+      else if (h >= 19 && h < 22) setAmbient({ color: 0x6878b8, alpha: 0.55 });
+      else setAmbient({ color: 0x3850a0, alpha: 0.65 });
     };
     update();
     const id = setInterval(update, 60_000);
@@ -1164,11 +1240,19 @@ export function OfficeGame(): ReactNode {
               height={CANVAS_HEIGHT}
               backgroundColor={BACKGROUND_COLOR}
               autoDensity={true}
+              antialias={true}
               resolution={
                 typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1
               }
               onInit={(app) => {
                 appRef.current = app;
+                // Color grading global — sat +10%, contraste +5%.
+                // Aplicado no stage pra atingir TODA a cena (inclusive
+                // o ambient lighting multiply layer).
+                const cmf = new ColorMatrixFilter();
+                cmf.saturate(0.1, true);
+                cmf.contrast(0.05, true);
+                app.stage.filters = [cmf];
               }}
             >
               {/* Loading screen - shown while sprites are loading */}
@@ -1178,7 +1262,10 @@ export function OfficeGame(): ReactNode {
               {spritesLoaded && (
                 <>
                   {/* Floor and walls */}
-                  <OfficeBackground floorTileTexture={textures.floorTile} />
+                  <OfficeBackground
+                    floorTileTexture={textures.floorTile}
+                    wallTexture={textures.wall}
+                  />
 
                   {/* Click-to-move capture layer: invisible rect over the
                       whole office floor. Sits just above the background and
@@ -1201,8 +1288,9 @@ export function OfficeGame(): ReactNode {
                   {/* Path + destination marker for the controlled entity. */}
                   <ClickToMovePath />
 
-                  {/* Boss area rug - rendered right after floor */}
-                  {textures.bossRug && (
+                  {/* Boss area rug — temporariamente desativado a pedido do
+                      Pedro. Pra reativar, troca `false &&` por `textures.bossRug &&`. */}
+                  {false && textures.bossRug && (
                     <pixiSprite
                       texture={textures.bossRug}
                       anchor={0.5}
@@ -1217,12 +1305,22 @@ export function OfficeGame(): ReactNode {
                     x={EMPLOYEE_OF_MONTH_POSITION.x}
                     y={EMPLOYEE_OF_MONTH_POSITION.y}
                   >
-                    <EmployeeOfTheMonth />
+                    <WallCalendar />
                   </pixiContainer>
                   <pixiContainer
                     x={CITY_WINDOW_POSITION.x}
                     y={CITY_WINDOW_POSITION.y}
                   >
+                    {/* Halo discreto da janela — não dominar a cor do céu
+                        noturno (calibrado pra ler como respiro de luz). */}
+                    <LightGlow
+                      radiusX={160}
+                      radiusY={90}
+                      color={0xffd97a}
+                      alpha={0.20}
+                      blurStrength={18}
+                      blendMode="add"
+                    />
                     <CityWindow />
                   </pixiContainer>
                   <pixiContainer
@@ -1235,6 +1333,15 @@ export function OfficeGame(): ReactNode {
                     x={WALL_CLOCK_POSITION.x}
                     y={WALL_CLOCK_POSITION.y}
                   >
+                    {/* Glow verde-elétrico do display digital. */}
+                    <LightGlow
+                      radiusX={70}
+                      radiusY={28}
+                      color={0x66ffaa}
+                      alpha={0.55}
+                      blurStrength={18}
+                      blendMode="add"
+                    />
                     <WallClock />
                   </pixiContainer>
                   {/* Wall outlet below clock */}
@@ -1251,26 +1358,43 @@ export function OfficeGame(): ReactNode {
                     x={WHITEBOARD_POSITION.x}
                     y={WHITEBOARD_POSITION.y}
                   >
+                    {/* Glow branco suave do whiteboard iluminado. */}
+                    <LightGlow
+                      radiusX={170}
+                      radiusY={80}
+                      color={0xfff8e0}
+                      alpha={0.3}
+                      blurStrength={26}
+                      blendMode="add"
+                    />
                     <Whiteboard todos={todos} />
                   </pixiContainer>
                   {textures.waterCooler && (
-                    <pixiSprite
-                      texture={textures.waterCooler}
-                      anchor={0.5}
+                    <pixiContainer
                       x={WATER_COOLER_POSITION.x}
                       y={WATER_COOLER_POSITION.y}
-                      scale={0.198}
-                    />
+                    >
+                      <ContactShadow width={42} y={28} />
+                      <pixiSprite
+                        texture={textures.waterCooler}
+                        anchor={0.5}
+                        scale={0.198}
+                      />
+                    </pixiContainer>
                   )}
                   {/* Coffee machine - to the right of water cooler */}
                   {textures.coffeeMachine && (
-                    <pixiSprite
-                      texture={textures.coffeeMachine}
-                      anchor={0.5}
+                    <pixiContainer
                       x={COFFEE_MACHINE_POSITION.x}
                       y={COFFEE_MACHINE_POSITION.y}
-                      scale={0.1}
-                    />
+                    >
+                      <ContactShadow width={48} y={26} />
+                      <pixiSprite
+                        texture={textures.coffeeMachine}
+                        anchor={0.5}
+                        scale={0.1}
+                      />
+                    </pixiContainer>
                   )}
 
                   {/* Printer station - bottom left corner */}
@@ -1282,18 +1406,23 @@ export function OfficeGame(): ReactNode {
                       printReport && !isCompacting && !!boss.bubble.content
                     }
                     deskTexture={textures.desk}
+                    cornerTableTexture={textures.cornerTable}
                     printerTexture={textures.printer}
                   />
 
                   {/* Plant - to the right of printer */}
                   {textures.plant && (
-                    <pixiSprite
-                      texture={textures.plant}
-                      anchor={0.5}
+                    <pixiContainer
                       x={PLANT_POSITION.x}
                       y={PLANT_POSITION.y}
-                      scale={0.1}
-                    />
+                    >
+                      <ContactShadow width={48} y={25} />
+                      <pixiSprite
+                        texture={textures.plant}
+                        anchor={0.5}
+                        scale={0.1}
+                      />
+                    </pixiContainer>
                   )}
 
                   {/* Ambient radio (boombox on a small desk) — diagonal mirror of the printer */}
@@ -1301,6 +1430,7 @@ export function OfficeGame(): ReactNode {
                     x={RADIO_POSITION.x}
                     y={RADIO_POSITION.y}
                     deskTexture={textures.desk}
+                    cornerTableTexture={textures.cornerTable}
                     radioTexture={textures.radio}
                   />
 
@@ -1559,9 +1689,45 @@ export function OfficeGame(): ReactNode {
                     waist={85}
                     size={256}
                     topPaddingRatio={58 / 228}
-                    directionalTextures={pedroDirectionalTextures}
+                    directionalTextures={pedroIdleFrames}
                     walkFrames={pedroWalkFrames}
                     renderBubble={false}
+                    withShadow
+                  />
+                  {/* Gestor de Trafego — chibi NPC slim com fones no pescoço.
+                      8-direction rotations + walk + idle, mesmo padrão do Pedro.
+                      Só aparece no Lobby. Source PixelLab id: 80ad319a... */}
+                  {floorId === LOBBY_FLOOR_ID && (
+                    <UserAvatar
+                      id="gestor-trafego"
+                      texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
+                      label="Gestor de Tráfego"
+                      phase={1.7}
+                      waist={85}
+                      size={256}
+                      topPaddingRatio={58 / 248}
+                      directionalTextures={gestorIdleFrames}
+                      walkFrames={gestorWalkFrames}
+                      renderBubble={false}
+                      idleFrameDurationMs={600}
+                      withShadow
+                    />
+                  )}
+                  {/* Pedro Samurai v5 — variant do gestor forte (a667b3e8):
+                      terno azul navy, camisa branca, coque preto, barba preta,
+                      sem óculos. PixelLab: 1f1e749a. Aparece em todas floors. */}
+                  <UserAvatar
+                    id="pedro-samurai"
+                    texture={samuraiIdleFrames.south?.[0] ?? userSuitTexture}
+                    label="Pedro"
+                    phase={2.9}
+                    waist={85}
+                    size={333}
+                    topPaddingRatio={58 / 248}
+                    directionalTextures={samuraiIdleFrames}
+                    walkFrames={samuraiWalkFrames}
+                    renderBubble={false}
+                    idleFrameDurationMs={2700}
                   />
                   {/* Estagiário and Chrome Dummy hidden por hora — uncomment
                       to bring them back into the office. */}
@@ -1709,12 +1875,16 @@ export function OfficeGame(): ReactNode {
                         />
                       </pixiContainer>
                     ))}
-                  {/* Balão do Claude — renderiza chunks ciclados de
+                  {/* Balão do Claudius — renderiza chunks ciclados de
                       `cycledBossBubble` (resposta crua dividida em
                       sentenças, ~1.8s cada, congela na última).
+                      Regra do Pedro (2026-06-03): só aparece quando ele
+                      está sentado em alguma cadeira. Se levantou e tá
+                      andando, o balão some — mesma heurística que o
+                      WanderingBoss usa pra trocar pro sprite sentado.
                       Clicar dispensa o balão e força backendState=idle
                       pra cortar também a ligação/recebimento em curso. */}
-                  {cycledBossBubble && (
+                  {cycledBossBubble && findNearestChair(boss.position, 30) && (
                     <pixiContainer
                       x={boss.position.x}
                       y={boss.position.y}
@@ -1744,9 +1914,13 @@ export function OfficeGame(): ReactNode {
                     />
                   ))}
 
-                  {/* Ambient lighting — tints the scene based on time of day. */}
+                  {/* Ambient lighting — tints the scene based on time of day.
+                      blendMode "multiply" faz color grading (escurece +
+                      tinta a paleta) em vez de overlay translúcido, dando
+                      sensação de mood cinematográfico. */}
                   {ambient.alpha > 0 && (
                     <pixiGraphics
+                      blendMode="multiply"
                       draw={(g) => {
                         g.clear();
                         g.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);

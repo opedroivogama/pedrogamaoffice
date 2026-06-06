@@ -421,7 +421,7 @@ function AgentSpriteComponent({
 
       {/* Agent name if present - hide when in elevator or when renderLabel is false */}
       {renderLabel && name && !isInElevatorZone(position) && (
-        <pixiContainer y={-70} scale={0.5}>
+        <pixiContainer y={-90} scale={0.5}>
           <pixiText
             text={name}
             anchor={0.5}
@@ -547,8 +547,10 @@ export interface AgentLabelProps {
 
 function AgentLabelComponent({ name, position }: AgentLabelProps): ReactNode {
   // Floating name only — no pill background (reserved for player avatars).
+  // Posição -92 (Pedro pediu mais alto, 2026-06-04) pra liberar espaço
+  // entre cabeça do sprite e o label.
   return (
-    <pixiContainer x={position.x} y={position.y - 72}>
+    <pixiContainer x={position.x} y={position.y - 99}>
       <pixiText
         text={name}
         anchor={0.5}

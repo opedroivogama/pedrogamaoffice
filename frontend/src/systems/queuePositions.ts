@@ -23,8 +23,9 @@ export const BOSS_SLOT_RIGHT: Position = { x: 760, y: 868 }; // Receiving work (
 // For desk center at y=960 (grid-aligned 30*32), boss is at y=900
 export const BOSS_POSITION: Position = { x: 640, y: 900 };
 
-// Elevator position (DO NOT CHANGE - this is the elevator's fixed location)
-export const ELEVATOR_POSITION: Position = { x: 86, y: 178 };
+// Elevator position. Descido +80px total (178 → 258). WALL_HEIGHT
+// atual=400 (parede esticou pra rodapé descer 15 junto).
+export const ELEVATOR_POSITION: Position = { x: 86, y: 258 };
 
 // Pathfinding target for agents walking to elevator (can be adjusted independently)
 export const ELEVATOR_PATHFINDING_TARGET: Position = { x: 86, y: 192 };
