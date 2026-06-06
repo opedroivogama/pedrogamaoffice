@@ -3,31 +3,12 @@
 import { useEffect, useState } from "react";
 import { Assets, Texture } from "pixi.js";
 
-export type Direction8 =
-  | "north"
-  | "north-east"
-  | "east"
-  | "south-east"
-  | "south"
-  | "south-west"
-  | "west"
-  | "north-west";
-
-export type PedroDirectionalTextures = Partial<Record<Direction8, Texture>>;
-export type PedroDirectionalWalkFrames = Partial<Record<Direction8, Texture[]>>;
-/** Array of idle/breathing frames per direction. Length 1 means "no
- *  animation, just a static rotation" — the caller treats it the same as the
- *  legacy single-texture idle. Length > 1 means cycle. */
-export type PedroDirectionalIdleFrames = Partial<Record<Direction8, Texture[]>>;
-
-export interface PedroSpriteBundle {
-  /** Idle frames per direction. Currently only `south` has multi-frame
-   *  breathing; other directions fall back to the static rotation as a
-   *  single-frame array. */
-  idle: PedroDirectionalIdleFrames;
-  /** Array of walk-cycle frames per direction (typically 6 frames). */
-  walk: PedroDirectionalWalkFrames;
-}
+import type {
+  Direction8,
+  PedroDirectionalIdleFrames,
+  PedroDirectionalWalkFrames,
+  PedroSpriteBundle,
+} from "./usePedroSprites";
 
 const DIRECTIONS: Direction8[] = [
   "north",
@@ -40,21 +21,13 @@ const DIRECTIONS: Direction8[] = [
   "north-west",
 ];
 
-const WALK_FRAME_COUNT = 6;
-const WALK_BASE = "/sprites/characters/PEDRO/animations/animation-2d055173";
-
-// Hoje o idle é estático: 1 frame escolhido a dedo (os outros 5 do gerador
-// eram praticamente idênticos e causavam tremidinha em vez de respiração).
-const IDLE_FRAME_COUNT = 1;
-const IDLE_BASE = "/sprites/characters/PEDRO/animations/Breathing_Idle-ca32e14e";
+const WALK_FRAME_COUNT = 4;
+const WALK_BASE = "/sprites/characters/PEDRO_SAMURAI/animations/walk-v3";
+const IDLE_FRAME_COUNT = 2;
+const IDLE_BASE = "/sprites/characters/PEDRO_SAMURAI/animations/idle";
 const IDLE_ANIMATED_DIRECTIONS: Direction8[] = ["south"];
 
-/**
- * Loads idle (rotation) + walk-cycle sprites for Pedro. Both are 8-direction
- * partials so the caller can fall back gracefully if a direction is missing
- * (e.g., the south walk frames currently don't exist on disk).
- */
-export function usePedroSprites(): PedroSpriteBundle {
+export function usePedroSamuraiSprites(): PedroSpriteBundle {
   const [bundle, setBundle] = useState<PedroSpriteBundle>({
     idle: {},
     walk: {},
@@ -63,12 +36,11 @@ export function usePedroSprites(): PedroSpriteBundle {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Static rotations — sempre carregadas como fallback/idle estático.
       const staticIdleEntries = await Promise.all(
         DIRECTIONS.map(async (dir) => {
           try {
             const t: Texture = await Assets.load(
-              `/sprites/characters/PEDRO/rotations/${dir}.png`,
+              `/sprites/characters/PEDRO_SAMURAI/rotations/${dir}.png`,
             );
             t.source.scaleMode = "nearest";
             return [dir, t] as const;
@@ -78,9 +50,6 @@ export function usePedroSprites(): PedroSpriteBundle {
         }),
       );
 
-      // Idle animado (breathing) — só nas direções listadas. Quando uma das
-      // direções não tem todos os frames esperados, descartamos a animação
-      // dessa direção e caímos no estático.
       const animatedIdleEntries = await Promise.all(
         IDLE_ANIMATED_DIRECTIONS.map(async (dir) => {
           const frames: Texture[] = [];
@@ -93,7 +62,7 @@ export function usePedroSprites(): PedroSpriteBundle {
               t.source.scaleMode = "nearest";
               frames.push(t);
             } catch {
-              // missing frame
+              // missing
             }
           }
           return [dir, frames] as const;
@@ -112,8 +81,7 @@ export function usePedroSprites(): PedroSpriteBundle {
               t.source.scaleMode = "nearest";
               frames.push(t);
             } catch {
-              // Skip missing frames silently; if all are missing the entry
-              // ends up empty and the caller falls back to idle.
+              // missing
             }
           }
           return [dir, frames] as const;
@@ -149,27 +117,4 @@ export function usePedroSprites(): PedroSpriteBundle {
   }, []);
 
   return bundle;
-}
-
-/**
- * Convert a movement delta into one of 8 compass directions.
- * Screen coords: +x is east, +y is south.
- */
-export function directionFromDelta(dx: number, dy: number): Direction8 {
-  // atan2 returns radians in (-π, π]. 0 = east, π/2 = south, -π/2 = north.
-  // Round to nearest 45° bucket → 8 directions.
-  const angle = Math.atan2(dy, dx);
-  const bucket = ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8;
-  // bucket 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
-  const map: Direction8[] = [
-    "east",
-    "south-east",
-    "south",
-    "south-west",
-    "west",
-    "north-west",
-    "north",
-    "north-east",
-  ];
-  return map[bucket];
 }

@@ -474,6 +474,8 @@ const initialState = {
     ["pedro", { x: 950, y: 870 }],
     ["estagiario", { x: 1130, y: 870 }],
     ["chrome-dummy", { x: 770, y: 870 }],
+    ["gestor-trafego", { x: 1100, y: 870 }],
+    ["pedro-samurai", { x: 800, y: 870 }],
   ]),
   userAvatarBubbles: new Map<string, string>(),
   userAvatarFacings: new Map<string, string>(),

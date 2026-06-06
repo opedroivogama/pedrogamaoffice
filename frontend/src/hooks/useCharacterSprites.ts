@@ -359,15 +359,12 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Assets.load(
             "/sprites/characters/AI_GOLD_HELMET/animations/idle/SOUTH/frame_000.png",
           ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_GOLD_HELMET/animations/idle/SOUTH/frame_001.png",
-          ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_GOLD_HELMET/animations/idle/SOUTH/frame_002.png",
-          ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_GOLD_HELMET/animations/idle/SOUTH/frame_003.png",
-          ).catch(() => null),
+          // Idle do Claudius é estático: 1 frame. Os outros 3 do gerador eram
+          // quase idênticos e causavam tremidinha. Slots mantidos pra não
+          // quebrar o destructuring posicional do Promise.all abaixo.
+          Promise.resolve(null),
+          Promise.resolve(null),
+          Promise.resolve(null),
           Assets.load("/sprites/characters/AI_SILVER/rotations/south.png").catch(
             () => null,
           ),
@@ -398,15 +395,11 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Assets.load(
             "/sprites/characters/AI_SILVER/animations/idle/SOUTH/frame_000.png",
           ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_SILVER/animations/idle/SOUTH/frame_001.png",
-          ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_SILVER/animations/idle/SOUTH/frame_002.png",
-          ).catch(() => null),
-          Assets.load(
-            "/sprites/characters/AI_SILVER/animations/idle/SOUTH/frame_003.png",
-          ).catch(() => null),
+          // Idle do agente é estático: 1 frame. Mesmo motivo do Claudius —
+          // os outros 3 do gerador eram quase idênticos e causavam tremidinha.
+          Promise.resolve(null),
+          Promise.resolve(null),
+          Promise.resolve(null),
         ])) as [
           Texture,
           Texture | null,
