@@ -2,6 +2,7 @@
 
 import {
   ChevronUp,
+  GitBranch,
   History,
   Maximize2,
   Minimize2,
@@ -11,6 +12,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useGameStore } from "@/stores/gameStore";
@@ -19,6 +23,7 @@ const API_BASE = "http://localhost:8000/api/v1/chat";
 const PAGE_SIZE = 20;
 
 type Role = "user" | "assistant";
+type MessageKind = "main" | "btw";
 
 interface ToolCall {
   id: string;
@@ -35,6 +40,8 @@ interface ChatMessage {
   streaming?: boolean;
   /** ISO timestamp — vem do DB; em msgs streaming do client é o momento local. */
   createdAt?: string;
+  /** 'main' = turno normal; 'btw' = sidequest paralela (/btw), bolha com tom diferenciado. */
+  kind?: MessageKind;
 }
 
 interface ThreadRecord {
@@ -52,10 +59,11 @@ interface DbMessage {
   text: string;
   tools: Array<{ id?: string; name?: string }> | null;
   created_at: string;
+  kind?: MessageKind;
 }
 
 type ServerEvent =
-  | { type: "meta"; session_id: string; is_new: boolean }
+  | { type: "meta"; session_id: string; is_new: boolean; kind?: MessageKind }
   | { type: "claude"; event: ClaudeStreamEvent }
   | { type: "stderr"; text: string }
   | { type: "stdout_raw"; text: string }
@@ -81,17 +89,24 @@ function newId(): string {
 }
 
 function dbToMessage(m: DbMessage): ChatMessage {
-  const tools: ToolCall[] = (m.tools ?? []).map((t) => ({
-    id: t.id ?? newId(),
-    name: t.name ?? "tool",
-    status: "done",
-  }));
+  // Dedup por id — mensagens no DB podem ter tools repetidas porque o
+  // Claude Code emite o mesmo tool_use em mais de um evento (stream +
+  // assistant snapshot), e o backend não dedupava na hora de gravar.
+  const seen = new Set<string>();
+  const tools: ToolCall[] = [];
+  for (const t of m.tools ?? []) {
+    const id = t.id ?? newId();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    tools.push({ id, name: t.name ?? "tool", status: "done" });
+  }
   return {
     id: m.id,
     role: m.role,
     text: m.text,
     tools: tools.length ? tools : undefined,
     createdAt: m.created_at,
+    kind: m.kind ?? "main",
   };
 }
 
@@ -113,6 +128,10 @@ export function ChatPanel(): React.ReactNode {
   const [threadList, setThreadList] = useState<ThreadRecord[]>([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Modo /btw ativo: input fica editável mesmo durante stream do main, e
+  // qualquer envio vira uma sidequest paralela (kind=btw). Toggle pelo
+  // botão GitBranch no rodapé. Desliga sozinho depois de mandar a msg.
+  const [btwMode, setBtwMode] = useState(false);
 
   // Close on Escape when expanded
   useEffect(() => {
@@ -289,35 +308,51 @@ export function ChatPanel(): React.ReactNode {
     handleNewThread();
   }, [thread, handleNewThread]);
 
-  const handleSend = useCallback(async () => {
-    const prompt = input.trim();
-    if (!prompt || isStreaming) return;
+  const sendPrompt = useCallback(async (
+    rawPrompt: string,
+    kind: MessageKind = "main",
+  ) => {
+    const prompt = rawPrompt.trim();
+    if (!prompt) return;
+    // /btw é paralelo — só bloqueia se for main e já tiver main rodando.
+    if (kind === "main" && isStreaming) return;
+    // /btw exige uma thread principal já existente (pra ter contexto).
+    if (kind === "btw" && !thread?.id) {
+      setError("/btw requer uma conversa principal já iniciada.");
+      return;
+    }
 
     const sessionId = thread?.id ?? null;
-    const userMsg: ChatMessage = { id: newId(), role: "user", text: prompt };
+    const userMsg: ChatMessage = { id: newId(), role: "user", text: prompt, kind };
     const assistantMsg: ChatMessage = {
       id: newId(),
       role: "assistant",
       text: "",
       streaming: true,
       tools: [],
+      kind,
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setInput("");
     setError(null);
-    setIsStreaming(true);
+    // Só o turno "main" toma o lock de streaming — /btw roda em paralelo.
+    if (kind === "main") setIsStreaming(true);
 
-    // Espelha o turno no escritório: Pedro fala o prompt (balão sobre o
-    // avatar do user), Claude entra em "recebendo" e ainda sem balão. O
-    // balão do Claude é preenchido conforme o stream chega.
-    const store = useGameStore.getState();
-    store.setUserAvatarBubble("pedro", prompt);
-    store.updateBossBackendState("receiving");
-    store.setBossBubbleContent(null);
+    // /btw NÃO mexe nos balões flutuantes do escritório — é sidequest
+    // silenciosa, vive só dentro do painel. Só "main" espelha no avatar.
+    if (kind === "main") {
+      const store = useGameStore.getState();
+      store.setUserAvatarBubble("pedro", prompt);
+      store.updateBossBackendState("receiving");
+      store.setBossBubbleContent(null);
+    }
 
     const controller = new AbortController();
-    abortRef.current = controller;
+    // /btw tem AbortController próprio (não interrompe outros /btw nem o
+    // main em curso); só o main grava o ref pro botão Stop usar.
+    if (kind === "main") {
+      abortRef.current = controller;
+    }
 
     try {
       const res = await fetch(`${API_BASE}/stream`, {
@@ -328,6 +363,7 @@ export function ChatPanel(): React.ReactNode {
           session_id: sessionId,
           is_new: sessionId === null,
           model: claudeModel,
+          kind,
         }),
         signal: controller.signal,
       });
@@ -355,7 +391,7 @@ export function ChatPanel(): React.ReactNode {
             if (!payload) continue;
             try {
               const ev = JSON.parse(payload) as ServerEvent;
-              processEvent(ev, assistantMsg.id, prompt);
+              processEvent(ev, assistantMsg.id, prompt, kind);
             } catch {
               // ignore malformed
             }
@@ -367,35 +403,83 @@ export function ChatPanel(): React.ReactNode {
         setError((err as Error).message);
       }
     } finally {
-      setIsStreaming(false);
-      abortRef.current = null;
+      if (kind === "main") {
+        setIsStreaming(false);
+        abortRef.current = null;
+      }
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMsg.id ? { ...m, streaming: false } : m,
         ),
       );
-      // Stream encerrou: tira o estado de "recebendo" mas deixa o balão
-      // visível até o usuário dispensar (clique no balão ou tecla X).
-      useGameStore.getState().updateBossBackendState("idle");
+      // Só o main toca no estado do boss flutuante do painel.
+      if (kind === "main") {
+        useGameStore.getState().updateBossBackendState("idle");
+      }
     }
-  }, [input, isStreaming, thread, claudeModel]);
+  }, [isStreaming, thread, claudeModel]);
+
+  const handleSend = useCallback(() => {
+    const raw = input.trim();
+    if (!raw) return;
+
+    // Resolve kind: modo btw ativo OU prefixo /btw literal → sidequest;
+    // caso contrário, turno main normal. O prefixo é stripado quando casa.
+    const btwPrefixMatch = raw.match(/^\/btw[\s:]+([\s\S]+)$/i);
+    const usingBtw = btwMode || btwPrefixMatch !== null;
+    const prompt = btwPrefixMatch ? btwPrefixMatch[1] : raw;
+
+    if (usingBtw) {
+      // /btw requer thread principal — se não tem, manda como main pra
+      // criar a conversa primeiro.
+      if (!thread?.id) {
+        setInput("");
+        setBtwMode(false);
+        if (isStreaming) return;
+        void sendPrompt(prompt, "main");
+        return;
+      }
+      setInput("");
+      setBtwMode(false); // toggle one-shot — desliga depois de mandar
+      void sendPrompt(prompt, "btw");
+      return;
+    }
+
+    if (isStreaming) return; // main bloqueia se já tem main rodando
+    setInput("");
+    void sendPrompt(prompt, "main");
+  }, [input, isStreaming, sendPrompt, btwMode, thread?.id]);
+
+  const handleToggleBtw = useCallback(() => {
+    // /btw exige thread principal pra ter snapshot — se não tem, ignora
+    // o toggle e mantém modo main (mensagem do erro fica pro send dela).
+    if (!thread?.id) {
+      setError("/btw requer uma conversa principal já iniciada.");
+      return;
+    }
+    setError(null);
+    setBtwMode((v) => !v);
+  }, [thread?.id]);
 
   const processEvent = useCallback(
-    (ev: ServerEvent, assistantId: string, originalPrompt: string) => {
+    (ev: ServerEvent, assistantId: string, originalPrompt: string, kind: MessageKind = "main") => {
       if (ev.type === "meta") {
-        // Cria thread "stub" local enquanto o backend grava no Supabase
-        setThread((prev) =>
-          prev ?? {
-            id: ev.session_id,
-            title:
-              originalPrompt.length > 80
-                ? originalPrompt.slice(0, 77) + "…"
-                : originalPrompt,
-            message_count: 0,
-            updated_at: new Date().toISOString(),
-            last_message_at: null,
-          },
-        );
+        // /btw NÃO cria thread nova — ele vive na thread principal já
+        // existente. Só criamos stub local pra turnos main.
+        if (ev.kind !== "btw") {
+          setThread((prev) =>
+            prev ?? {
+              id: ev.session_id,
+              title:
+                originalPrompt.length > 80
+                  ? originalPrompt.slice(0, 77) + "…"
+                  : originalPrompt,
+              message_count: 0,
+              updated_at: new Date().toISOString(),
+              last_message_at: null,
+            },
+          );
+        }
         return;
       }
       if (ev.type === "error") {
@@ -426,8 +510,10 @@ export function ChatPanel(): React.ReactNode {
               return { ...m, text: nextText };
             }),
           );
-          // Espelha o texto incremental no balão flutuante do Claude.
-          if (nextText) {
+          // Espelha o texto incremental no balão flutuante do Claude —
+          // mas só pra turno main. /btw é sidequest silenciosa: vive só
+          // dentro do painel pra não atrapalhar o turno principal.
+          if (nextText && kind === "main") {
             useGameStore.getState().setBossBubbleContent({
               type: "speech",
               text: nextText,
@@ -441,17 +527,21 @@ export function ChatPanel(): React.ReactNode {
           const toolName = inner.content_block.name ?? "tool";
           const toolId = inner.content_block.id ?? newId();
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    tools: [
-                      ...(m.tools ?? []),
-                      { id: toolId, name: toolName, status: "running" },
-                    ],
-                  }
-                : m,
-            ),
+            prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              const existing = m.tools ?? [];
+              // Claude Code emite o mesmo tool_use.id em mais de um evento
+              // (stream + assistant snapshot). Sem dedup vira "duplicate key"
+              // no React.
+              if (existing.some((t) => t.id === toolId)) return m;
+              return {
+                ...m,
+                tools: [
+                  ...existing,
+                  { id: toolId, name: toolName, status: "running" },
+                ],
+              };
+            }),
           );
         } else if (inner.type === "content_block_stop") {
           setMessages((prev) =>
@@ -645,17 +735,51 @@ export function ChatPanel(): React.ReactNode {
       </div>
 
       {/* Input */}
-      <div className="border-t border-jp-divider-soft p-2 flex gap-2 items-end">
+      <div
+        className={`border-t p-2 flex gap-2 items-end transition-colors ${
+          btwMode
+            ? "border-jp-gold-primary/40 bg-jp-gold-primary/5"
+            : "border-jp-divider-soft"
+        }`}
+      >
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
-          disabled={isStreaming}
-          placeholder="Pergunte ao Claude…  (Enter envia, Shift+Enter quebra linha)"
-          className="flex-1 resize-none bg-jp-surface-2/50 border border-jp-divider-soft rounded px-2 py-1.5 text-xs text-jp-fg placeholder:text-jp-fg-dim/50 focus:outline-none focus:border-jp-gold-primary/60 disabled:opacity-50"
+          // No modo /btw o input fica liberado mesmo se o main estiver
+          // streamando — a sidequest roda em paralelo, sem disputar lock.
+          disabled={isStreaming && !btwMode}
+          placeholder={
+            btwMode
+              ? "/btw — sidequest paralela (Enter envia, não polui o JSONL principal)"
+              : "Pergunte ao Claude…  (Enter envia, Shift+Enter quebra linha)"
+          }
+          className={`flex-1 resize-none rounded px-2 py-1.5 text-xs text-jp-fg placeholder:text-jp-fg-dim/50 focus:outline-none disabled:opacity-50 transition-colors ${
+            btwMode
+              ? "bg-jp-surface-2/60 border border-dashed border-jp-gold-primary/50 focus:border-jp-gold-primary/80"
+              : "bg-jp-surface-2/50 border border-jp-divider-soft focus:border-jp-gold-primary/60"
+          }`}
         />
-        {isStreaming ? (
+        <button
+          type="button"
+          onClick={handleToggleBtw}
+          className={`p-2 rounded border transition-colors ${
+            btwMode
+              ? "bg-jp-gold-primary/30 border-jp-gold-primary/70 text-jp-gold-primary"
+              : "bg-jp-surface-2/50 border-jp-divider-soft text-jp-fg-muted hover:text-jp-gold-primary hover:border-jp-gold-primary/40"
+          }`}
+          title={
+            btwMode
+              ? "Modo /btw ATIVO — próxima mensagem vai como sidequest paralela. Clique pra cancelar."
+              : "Ativar modo /btw — manda sidequest paralela com snapshot da conversa, sem travar o turno principal."
+          }
+          aria-label="Modo /btw"
+          aria-pressed={btwMode}
+        >
+          <GitBranch className="w-3.5 h-3.5" />
+        </button>
+        {isStreaming && !btwMode ? (
           <button
             type="button"
             onClick={handleStop}
@@ -669,8 +793,12 @@ export function ChatPanel(): React.ReactNode {
             type="button"
             onClick={handleSend}
             disabled={!input.trim()}
-            className="p-2 rounded bg-jp-gold-primary/20 hover:bg-jp-gold-primary/30 border border-jp-gold-primary/40 text-jp-gold-primary disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Enviar (Enter)"
+            className={`p-2 rounded border disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${
+              btwMode
+                ? "bg-jp-gold-primary/15 hover:bg-jp-gold-primary/25 border-dashed border-jp-gold-primary/40 text-jp-gold-primary"
+                : "bg-jp-gold-primary/20 hover:bg-jp-gold-primary/30 border-jp-gold-primary/40 text-jp-gold-primary"
+            }`}
+            title={btwMode ? "Enviar como /btw (Enter)" : "Enviar (Enter)"}
           >
             <Send className="w-3.5 h-3.5" />
           </button>
@@ -699,22 +827,34 @@ export function ChatPanel(): React.ReactNode {
 
 function MessageBubble({ message }: { message: ChatMessage }): React.ReactNode {
   const isUser = message.role === "user";
+  const isBtw = message.kind === "btw";
+
+  // /btw vive em tom dourado mais apagado e borda tracejada — sinaliza
+  // visualmente que é uma sidequest paralela, separada do fio principal.
+  const bubbleColor = isBtw
+    ? isUser
+      ? "bg-jp-gold-primary/6 border border-dashed border-jp-gold-primary/25 text-jp-fg/85"
+      : "bg-jp-surface-2/30 border border-dashed border-jp-gold-primary/20 text-jp-fg/85"
+    : isUser
+      ? "bg-jp-gold-primary/15 border border-jp-gold-primary/30 text-jp-fg"
+      : "bg-jp-surface-2/70 border border-jp-divider-soft text-jp-fg";
+
   return (
-    <div
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-    >
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[88%] rounded px-2 py-1.5 text-xs whitespace-pre-wrap break-words ${
-          isUser
-            ? "bg-jp-gold-primary/15 border border-jp-gold-primary/30 text-jp-fg"
-            : "bg-jp-surface-2/70 border border-jp-divider-soft text-jp-fg"
-        }`}
+        className={`max-w-[88%] rounded px-2 py-1.5 text-xs break-words chat-md ${bubbleColor}`}
+        title={isBtw ? "/btw — sidequest paralela (não escreve no JSONL principal)" : undefined}
       >
+        {isBtw && (
+          <div className="text-[9px] font-mono uppercase tracking-wider text-jp-gold-primary/60 mb-0.5">
+            /btw
+          </div>
+        )}
         {message.tools && message.tools.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1">
-            {message.tools.map((t) => (
+            {message.tools.map((t, i) => (
               <span
-                key={t.id}
+                key={`${t.id}-${i}`}
                 className={`text-[9px] font-mono px-1 py-0.5 rounded border ${
                   t.status === "running"
                     ? "border-jp-gold-primary/40 text-jp-gold-primary animate-pulse"
@@ -726,7 +866,43 @@ function MessageBubble({ message }: { message: ChatMessage }): React.ReactNode {
             ))}
           </div>
         )}
-        {message.text}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkBreaks]}
+          components={{
+            a: ({ href, children }) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-jp-gold-primary underline hover:opacity-80"
+              >
+                {children}
+              </a>
+            ),
+            code: ({ className, children, ...props }) => {
+              const isBlock = className?.includes("language-");
+              if (isBlock) {
+                return (
+                  <pre className="my-1 p-2 rounded bg-black/40 border border-jp-divider-soft overflow-x-auto">
+                    <code className="font-mono text-[11px]" {...props}>
+                      {children}
+                    </code>
+                  </pre>
+                );
+              }
+              return (
+                <code
+                  className="font-mono text-[11px] px-1 py-px rounded bg-black/30 border border-jp-divider-soft"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            },
+          }}
+        >
+          {message.text}
+        </ReactMarkdown>
         {message.streaming && (
           <span className="inline-block w-1.5 h-3 ml-0.5 bg-jp-gold-primary/60 animate-pulse align-middle" />
         )}

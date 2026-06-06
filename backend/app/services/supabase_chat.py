@@ -149,13 +149,21 @@ async def insert_message(
     role: str,
     text: str,
     tools: list[dict[str, Any]] | None = None,
+    *,
+    kind: str = "main",
 ) -> dict[str, Any] | None:
-    """Insere uma mensagem e bumpa counters/last_message_at da thread."""
+    """Insere uma mensagem e bumpa counters/last_message_at da thread.
+
+    `kind` distingue turnos normais (`main`) de sidequests `/btw` — esses
+    aparecem na mesma thread no painel mas com bolha de tom diferente e
+    NÃO escrevem no JSONL da sessão Claude Code principal.
+    """
     payload = {
         "thread_id": thread_id,
         "role": role,
         "text": text,
         "tools": tools,
+        "kind": kind,
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:

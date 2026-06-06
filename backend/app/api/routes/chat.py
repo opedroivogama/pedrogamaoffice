@@ -30,7 +30,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -63,6 +63,12 @@ class ChatRequest(BaseModel):
     # header do frontend. Whitelisted em `_ALLOWED_MODELS` antes de virar
     # `--model` no CLI. None = deixa o Claude Code usar o default dele.
     model: str | None = None
+    # "main" = turno normal, escreve no JSONL da sessão (--resume/--session-id).
+    # "btw" = sidequest paralela: spawn claude -p efêmero (sem --session-id)
+    # com snapshot das últimas msgs da sessão principal injetado via
+    # --append-system-prompt. Não polui o JSONL principal nem disputa lock,
+    # mas a resposta é persistida na mesma thread do chat com kind='btw'.
+    kind: Literal["main", "btw"] = "main"
 
 
 # Whitelist dos IDs aceitos pra --model. Tem que bater com o que o frontend
@@ -131,6 +137,188 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# /btw — context fork
+# ---------------------------------------------------------------------------
+
+# Quantos chars no máximo de contexto da sessão principal mandamos pra um
+# /btw. Não dá pra subir muito porque no Windows o `claude` é um shim .CMD
+# e o cmd.exe tem teto de 8191 chars na linha de comando inteira — com o
+# header do system prompt, prompt do usuário e demais flags, sobra ~4–5K
+# pro snapshot. Acima disso o subprocess falha com "Linha de comando muito
+# longa". Se um dia rodar via PowerShell direto (sem .CMD shim) dá pra
+# subir esse limite.
+_BTW_CONTEXT_MAX_CHARS = 4000
+# Limite por turno individual — evita que uma resposta gigante do Claude
+# coma todo o budget de contexto sozinha.
+_BTW_PER_TURN_CAP = 800
+# Teto duro da linha de comando inteira no Windows (cmd.exe). Trim defensivo
+# caso o prompt do usuário e o contexto somados tentem ultrapassar.
+_WIN_CMD_LINE_MAX = 7500
+
+
+def _find_main_jsonl(session_id: str) -> Path | None:
+    """Localiza o JSONL da sessão Claude Code principal.
+
+    Claude Code organiza por `~/.claude/projects/<project-hash>/<session>.jsonl`,
+    e o project-hash depende do cwd — então é mais barato fazer um glob direto
+    do que recalcular o hash a partir do cwd.
+    """
+    home = Path.home()
+    base = home / ".claude" / "projects"
+    if not base.is_dir():
+        return None
+    matches = list(base.glob(f"*/{session_id}.jsonl"))
+    return matches[0] if matches else None
+
+
+def _extract_text(content: object) -> str:
+    """Extrai texto consolidado de um campo `content` do Claude Code JSONL.
+
+    O campo pode ser string (formato antigo) ou lista de blocos
+    (`[{type:'text', text:'...'}, ...]`). Ignora blocos não-text (tool_use,
+    tool_result, thinking — irrelevantes pra snapshot de conversa).
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+        return "".join(parts)
+    return ""
+
+
+def _load_main_session_context(
+    session_id: str,
+    *,
+    max_chars: int = _BTW_CONTEXT_MAX_CHARS,
+) -> str:
+    """Lê o JSONL da sessão principal e devolve snapshot das últimas trocas.
+
+    Caminha de trás pra frente coletando pares user/assistant até estourar o
+    `max_chars`. Cada turno é truncado em `_BTW_PER_TURN_CAP` chars pra
+    evitar que uma única resposta longa consuma todo o orçamento.
+
+    Returns:
+        String formatada (blocos `[user] …` / `[assistant] …` separados por
+        linhas em branco), ou string vazia se não achou o JSONL ou está vazio.
+    """
+    path = _find_main_jsonl(session_id)
+    if path is None:
+        logger.info("btw: JSONL não encontrado pra session_id=%s", session_id)
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        logger.warning("btw: falha lendo %s: %s", path, exc)
+        return ""
+
+    blocks: list[str] = []
+    total = 0
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        msg = obj.get("message")
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = _extract_text(msg.get("content")).strip()
+        if not text:
+            continue
+        if len(text) > _BTW_PER_TURN_CAP:
+            text = text[: _BTW_PER_TURN_CAP] + " […]"
+        block = f"[{role}] {text}"
+        if total + len(block) > max_chars:
+            break
+        blocks.append(block)
+        total += len(block) + 2
+
+    if not blocks:
+        return ""
+    blocks.reverse()  # cronológico
+    return "\n\n".join(blocks)
+
+
+def _build_btw_system_prompt(context: str) -> str:
+    """Monta o system prompt extra pro /btw.
+
+    Explica pro sub-claude que ele é uma side-question e dá o snapshot da
+    sessão principal como contexto somente-leitura.
+    """
+    header = (
+        "Você é uma execução paralela (`/btw` — by the way) disparada pelo "
+        "usuário no painel de chat. A sessão principal continua rodando em "
+        "outro processo e você NÃO tem acesso ao estado em tempo real dela. "
+        "Use o snapshot abaixo como contexto de leitura, responda objetivo "
+        "e curto, e não tente assumir tarefas longas — qualquer trabalho "
+        "real continua na thread principal."
+    )
+    if not context:
+        return header + "\n\n(Snapshot da sessão principal indisponível.)"
+    return (
+        header
+        + "\n\n--- Snapshot da sessão principal (últimas trocas) ---\n"
+        + context
+        + "\n--- fim do snapshot ---"
+    )
+
+
+def _build_btw_command(
+    prompt: str,
+    ephemeral_id: str,
+    model: str | None,
+    context: str,
+) -> list[str]:
+    """Comando pra rodar um /btw — claude -p efêmero com snapshot injetado.
+
+    Faz trim defensivo do contexto se a linha de comando total passar de
+    `_WIN_CMD_LINE_MAX` (limite do cmd.exe). Sob trim, a snapshot perde os
+    turnos mais antigos primeiro.
+    """
+    def assemble(ctx: str) -> list[str]:
+        c = [
+            _claude_executable(),
+            "--print",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
+            "--session-id",
+            ephemeral_id,  # id descartável só pra não colidir com nenhuma sessão
+            "--append-system-prompt",
+            _build_btw_system_prompt(ctx),
+        ]
+        if model and model in _ALLOWED_MODELS:
+            c.extend(["--model", model])
+        return c
+
+    cmd = assemble(context)
+    if model and model not in _ALLOWED_MODELS:
+        logger.warning("ignoring unknown model id from client: %s", model)
+
+    # Soma o tamanho do cmd inteiro (chars + 1 espaço entre args). Se exceder,
+    # corta o contexto pela metade até caber. Última saída garantida: sem
+    # contexto algum, só o header do system prompt.
+    if sys.platform == "win32":
+        while context and sum(len(a) for a in cmd) + len(cmd) > _WIN_CMD_LINE_MAX:
+            context = context[len(context) // 4 :]  # joga fora 1/4 do mais antigo
+            cmd = assemble(context)
+            if len(context) < 200:
+                break
+    return cmd
+
+
 def _accumulate_assistant_turn(
     obj: dict,
     text_parts: list[str],
@@ -177,24 +365,45 @@ def _accumulate_assistant_turn(
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest) -> StreamingResponse:
+    is_btw = req.kind == "btw"
+    if is_btw and not req.session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="/btw exige session_id da thread principal",
+        )
+
+    # session_id "lógico" = id que persistimos no chat_messages. Pra /btw é
+    # a mesma thread principal (vivendo no mesmo painel). Pra /main é o id
+    # do --session-id/--resume do Claude.
     session_id = req.session_id or str(uuid.uuid4())
-    is_new = req.is_new or req.session_id is None
+    is_new = (not is_btw) and (req.is_new or req.session_id is None)
     cwd = _resolve_cwd(req.cwd)
-    cmd = _build_command(req.prompt, session_id, is_new, req.model)
+
+    if is_btw:
+        ephemeral_id = str(uuid.uuid4())
+        context_snapshot = _load_main_session_context(session_id)
+        cmd = _build_btw_command(
+            req.prompt, ephemeral_id, req.model, context_snapshot,
+        )
+    else:
+        cmd = _build_command(req.prompt, session_id, is_new, req.model)
 
     logger.info(
-        "chat/stream session=%s new=%s model=%s cwd=%s prompt_len=%d",
-        session_id, is_new, req.model or "(default)", cwd, len(req.prompt),
+        "chat/stream session=%s kind=%s new=%s model=%s cwd=%s prompt_len=%d",
+        session_id, req.kind, is_new, req.model or "(default)", cwd, len(req.prompt),
     )
 
-    # Persiste antes de streamar pra UI já enxergar a thread se ela recarregar
-    # no meio do stream. Title só é gravado na 1ª criação (upsert preserva).
-    await supabase_chat.upsert_thread(
-        session_id,
-        title=supabase_chat.derive_title(req.prompt) if is_new else None,
-        cwd=cwd,
+    # Pra /btw a thread principal já existe — só persiste a msg do user com
+    # kind=btw e não toca no title. Pra /main mantém comportamento atual.
+    if not is_btw:
+        await supabase_chat.upsert_thread(
+            session_id,
+            title=supabase_chat.derive_title(req.prompt) if is_new else None,
+            cwd=cwd,
+        )
+    await supabase_chat.insert_message(
+        session_id, "user", req.prompt, kind=req.kind,
     )
-    await supabase_chat.insert_message(session_id, "user", req.prompt)
 
     # Acumuladores pro turno da assistente — gravamos uma única mensagem no
     # fim do stream com o texto consolidado.
@@ -252,8 +461,14 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
             t.start()
 
         # Primeiro evento: meta com o session_id que o cliente deve guardar
-        # pra próximas mensagens.
-        yield _sse({"type": "meta", "session_id": session_id, "is_new": is_new})
+        # pra próximas mensagens (e o kind, pra a UI já pintar a bolha do
+        # /btw com o tom certo desde o primeiro delta).
+        yield _sse({
+            "type": "meta",
+            "session_id": session_id,
+            "is_new": is_new,
+            "kind": req.kind,
+        })
 
         ends_pending = 2
         try:
@@ -305,6 +520,7 @@ async def chat_stream(req: ChatRequest) -> StreamingResponse:
                     session_id, "assistant",
                     final_text or "(sem resposta textual)",
                     assistant_tools or None,
+                    kind=req.kind,
                 )
 
     return StreamingResponse(
