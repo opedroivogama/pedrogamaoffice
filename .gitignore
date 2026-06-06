@@ -113,6 +113,12 @@ graphify-out/
 # --- Local backups / scratch artifacts ---
 escritorio-online-BACKUP-*.zip
 sprites-backup-*/
+sprites_backup_*/
+*.prev
+*.prev_dark
+*.bak
+*- Copia.*
+**/TEMP IDEL/
 /SPRITES/
 video-frames/
 *.mp4
