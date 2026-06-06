@@ -16,11 +16,11 @@ import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
 import { drawChibi } from "./shared/drawChibi";
+import { ContactShadow } from "./ContactShadow";
 import { truncateBubbleText } from "@/utils/bubbleText";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useGameStore } from "@/stores/gameStore";
-import { Plumbob } from "./Plumbob";
 
 // ============================================================================
 // TYPES
@@ -64,7 +64,16 @@ const STROKE_WIDTH = 4;
 /** Distância vertical (px) entre o centro da badge "Claudius" e o centro
  *  do WorkIndicator (⚔️🔨🛡️) que fica acima dela. Constante exportada
  *  pra OfficeGame poder usar o mesmo gap no WanderingBoss. */
-export const CLAUDIUS_WORK_INDICATOR_GAP = 50;
+export const CLAUDIUS_WORK_INDICATOR_GAP = 33;
+
+/** Idle secundário — período em segundos entre um "suspiro/alongamento" e o
+ *  próximo. Pedro pediu 30s. Mantém o personagem visualmente vivo sem
+ *  competir com o breathing-idle contínuo. */
+export const SECONDARY_IDLE_PERIOD_S = 30;
+/** Duração do "suspiro" em segundos. */
+export const SECONDARY_IDLE_DURATION_S = 1.8;
+/** Amplitude do stretch Y no pico do suspiro (0.06 = +6%). */
+export const SECONDARY_IDLE_AMPLITUDE = 0.06;
 
 // State colors for the boss (kept for reference, not currently used)
 const _STATE_COLORS: Record<BossState, number> = {
@@ -278,7 +287,6 @@ function BossSpriteComponent({
 }: BossSpriteProps): ReactNode {
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
-  const isControlled = useGameStore((s) => s.controlledEntityId === "boss");
 
   // Animation state for typing
   const [typingTime, setTypingTime] = useState(0);
@@ -295,6 +303,17 @@ function BossSpriteComponent({
   const leftArmOffset = isTyping
     ? Math.sin(typingTime * 8 + Math.PI * 0.7) * 2
     : 0;
+
+  // Idle secundário — a cada 30s aplica um stretch Y suave (peak 1.06x) por
+  // 1.8s pra quebrar a monotonia do breathing-idle, simulando um suspiro/
+  // alongamento. Placeholder até termos sprite dedicado.
+  // typingTime acumula a deltaTime*0.05 → 1 unit = 1/3 s.
+  const secondaryPhase = ((typingTime / 3) % SECONDARY_IDLE_PERIOD_S);
+  const inSecondaryIdle = secondaryPhase < SECONDARY_IDLE_DURATION_S;
+  const secondaryStretchY = inSecondaryIdle
+    ? 1 + SECONDARY_IDLE_AMPLITUDE *
+      Math.sin((secondaryPhase / SECONDARY_IDLE_DURATION_S) * Math.PI)
+    : 1;
 
   // Shirt-slides-over-pants model: full body translates ±2 px; pants are a
   // separate STATIC overlay rendered on top. The seam is invisible because
@@ -377,22 +396,28 @@ function BossSpriteComponent({
       onPointerTap={handleBossTap}
       interactive={clickToFocusEnabled}
     >
-      {/* Chair - behind everything */}
+      {/* Drop shadow sob a mesa do boss (vai pro chão, atrás da cadeira).
+          y subido de 80→60 (Pedro 2026-06-06): conjunto da mesa do boss
+          sobe 20px pra não cortar no limite inferior da sala. */}
+      <ContactShadow width={170} height={26} y={50} alpha={0.4} />
+
+      {/* Chair - behind everything. y subido de 30→10 (acompanha o conjunto). */}
       {chairTexture ? (
         <pixiSprite
           texture={chairTexture}
           anchor={0.5}
           x={5}
-          y={30}
+          y={0}
           scale={0.1386}
         />
       ) : (
         <pixiGraphics draw={drawFallbackChair} />
       )}
 
-      {/* Boss character (body + accessories) - hidden when away from desk */}
+      {/* Boss character (body + accessories) - hidden when away from desk.
+          y subido de 6→-14 (acompanha conjunto da mesa). */}
       {!isAway && (
-        <pixiContainer y={6}>
+        <pixiContainer y={-24}>
           {/* Boss body — sentado, sempre cropado pra mostrar só do peito
               pra cima. Sem o crop, sprites grandes (240px) mostram pernas
               abaixo da mesa. Match com SEATED_CROP_RATIO usado nas
@@ -418,16 +443,26 @@ function BossSpriteComponent({
               return <pixiGraphics draw={drawBossCallback} />;
             }
             const hideOffset = characterRenderSize * SEATED_HIDE_RATIO;
+            // Wrap em container pra aplicar scale.y do idle secundário sem
+            // brigar com width/height explícitos do sprite. Origem do
+            // container = posição dos pés (anchor.y=1 do sprite), então
+            // scale.y estende pra cima como um alongamento.
             return (
-              <pixiSprite
-                texture={activeTexture}
-                anchor={{ x: 0.5, y: 1 }}
+              <pixiContainer
                 x={5}
                 y={4 + hideOffset}
-                width={characterRenderSize}
-                height={characterRenderSize}
-                tint={bodyTint ?? 0xffffff}
-              />
+                scale={{ x: 1, y: secondaryStretchY }}
+              >
+                <pixiSprite
+                  texture={activeTexture}
+                  anchor={{ x: 0.5, y: 1 }}
+                  x={0}
+                  y={0}
+                  width={characterRenderSize}
+                  height={characterRenderSize}
+                  tint={bodyTint ?? 0xffffff}
+                />
+              </pixiContainer>
             );
           })()}
 
@@ -445,22 +480,24 @@ function BossSpriteComponent({
         </pixiContainer>
       )}
 
-      {/* Desk surface - in front of boss. Subida ~20px (de y=30 pra y=10)
-          pra cobrir o tronco do Claude e dar o efeito "sentado atrás da
-          mesa" — antes ficava na cintura e expunha o corpo inteiro. */}
+      {/* Desk surface - Mesa do boss no MESMO padrão das outras (Pedro 2026-06-04):
+          scale 0.21 (era 0.105), x=-25 y=-25 (y subido de -5→-25 a pedido
+          do Pedro 2026-06-06 — conjunto sobe 20px pra não cortar). */}
       {deskTexture ? (
         <pixiSprite
           texture={deskTexture}
           anchor={{ x: 0.5, y: 0 }}
-          y={10}
-          scale={0.105}
+          x={-25}
+          y={-35}
+          scale={0.21}
         />
       ) : (
         <pixiGraphics draw={drawFallbackDesk} />
       )}
 
-      {/* Keyboard - on desk surface (subido junto com a mesa). */}
-      {keyboardTexture && (
+      {/* Keyboard do boss DESABILITADO (Pedro 2026-06-04 — mesa nova já tem
+          computador integrado). Pra reativar, troca `false &&` por só `keyboardTexture &&`. */}
+      {false && keyboardTexture && (
         <pixiSprite
           texture={keyboardTexture}
           anchor={0.5}
@@ -489,9 +526,8 @@ function BossSpriteComponent({
         />
       )}
 
-      {/* Monitor - na frente do personagem (rendered último → fica por
-          cima de tudo, inclusive do tronco do Claude). */}
-      {monitorTexture && (
+      {/* Monitor do boss DESABILITADO (Pedro 2026-06-04). */}
+      {false && monitorTexture && (
         <pixiSprite
           texture={monitorTexture}
           anchor={0.5}
@@ -503,18 +539,14 @@ function BossSpriteComponent({
 
       {/* Boss label - hidden when away from desk.
           Dark pill com borda dourada.
-          Matemática pro Claude gold sprite (characterRenderSize=240,
-          configurado em OfficeGame.tsx:1441):
-            sprite anchor bottom = y=62 (typing) dentro de container y=6
-            sprite top em BossSprite root = 6 + 62 - 240 = -172
-            + padding transparente do PNG (~25px no topo) → cabeça
-              visível em y ≈ -147
-            Badge a ~20px acima da cabeça visível = y ≈ -167
-            Como a pill desce ~11px (scale 0.5 × pillH/2), centro
-              ideal = y=-200 pro gap visual ficar limpo.
-          (Pro sprite chibi 128 sem padding, equivalente seria y=-90.) */}
+          Posicionamento empírico (2026-06-04): Pedro pediu pra aproximar
+          a badge do sprite sentado pra ficar proporcional ao gap do
+          WanderingBoss em pé (y=-187, sprite 128px). Sentado o sprite é
+          240px com 42% escondido + padding superior do PNG gold, então
+          o cropping deixava a badge muito longe da cabeça visível.
+          Valor atual y=-78 mantém ~30-40px de gap percebido. */}
       {!isAway && (
-        <pixiContainer x={5} y={-97}>
+        <pixiContainer x={5} y={-78}>
           <pixiGraphics
             draw={(g) => {
               const label = "Claudius";
@@ -551,7 +583,7 @@ function BossSpriteComponent({
       {!isAway && isWorking && (
         <pixiContainer
           x={5}
-          y={-97 - CLAUDIUS_WORK_INDICATOR_GAP}
+          y={-78 - CLAUDIUS_WORK_INDICATOR_GAP}
           scale={0.5}
         >
           <WorkIndicator />
@@ -570,8 +602,9 @@ function BossSpriteComponent({
         <Bubble content={bubble} yOffset={bubbleOffset} />
       )}
 
-      {/* Sims-style plumbob — only renders when boss is being driven. */}
-      {isControlled && <Plumbob />}
+      {/* Plumbob não renderiza aqui — só aparece sobre o Claudius em pé
+          (WanderingBoss). Sentado a mesa já indica visualmente onde ele
+          está, então o diamante na mesa ficaria redundante. */}
     </pixiContainer>
   );
 }

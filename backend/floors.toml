@@ -39,3 +39,26 @@ icon = "👥"
 repos = [
   "clientes-ativos",   # JurisChat bridge — visão "clientes em atividade"
 ]
+
+[[floors]]
+name = "Diretoria"
+floor_number = 7  # topo do prédio — diretoria/comando, acima de Clientes (#6)
+accent = "#D4AF37"  # Gold mais saturado — sala do Pedro + Claudius (mente da empresa)
+icon = "👔"
+# Andar onde caem as sessões Claude Code rodando NO próprio projeto escritorio
+# online (Claudius operando o painel da empresa) e também eventos diretos do
+# Pedro como diretor. O ProductMapper tenta casar nesta ordem:
+#   1. basename(project_dir) após walk-up até .git  → "escritorio online" (com espaço)
+#   2. project_name direto                          → variantes que o hook envia
+#   3. basename(working_dir)
+# Múltiplas variantes ficam aqui pra cobrir as diferentes formas que o hook
+# pode normalizar o nome (kebab vs espaço vs caminho-completo-com-dashes).
+repos = [
+  "escritorio online",                                          # basename real do dir com .git
+  "escritorio-online",                                          # variante kebab (caso o hook normalize)
+  "C--Users-Pedro-Desktop-escritorio-online",                   # project_name estilo Claude Code (path → dashes)
+  "C--Users-Pedro-Desktop-escritorio-online-backend",           # idem, subdir backend
+  "C--Users-Pedro-Desktop-escritorio-online-frontend",          # idem, subdir frontend
+  "claudius",                                                   # source_id futuro pra eventos diretos do Claudius
+  "diretoria-pedro",                                            # source_id futuro pra eventos do Pedro como diretor
+]
