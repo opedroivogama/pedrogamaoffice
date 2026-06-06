@@ -41,6 +41,7 @@ import {
 } from "@/components/layout/StatusToast";
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
+import CalendarModal from "@/components/overlay/CalendarModal";
 import NotesModal from "@/components/notes/NotesModal";
 import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
@@ -430,6 +431,8 @@ export default function V2TestPage(): React.ReactNode {
         initialTab={settingsInitialTab}
       />
 
+      <CalendarModal />
+
       <Modal
         isOpen={sessionPendingDelete !== null}
         onClose={() => setSessionPendingDelete(null)}
@@ -469,7 +472,7 @@ export default function V2TestPage(): React.ReactNode {
       {/* ----------------------------------------------------------------
           Header
       ---------------------------------------------------------------- */}
-      <header className="flex justify-between items-center mb-2 px-1 relative h-12 gap-4 min-w-0">
+      <header className="flex justify-between items-center mb-2 pl-1 pr-0 relative h-12 gap-4 min-w-0">
         <div className="flex items-center gap-3 min-w-0 overflow-hidden">
           {isMobile && (
             <button
@@ -491,7 +494,7 @@ export default function V2TestPage(): React.ReactNode {
               <span className="hidden lg:inline">{t("app.title")}</span>
             )}
             {!isMobile && (
-              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-jp-surface-2 rounded text-jp-fg-muted border border-jp-divider">
+              <span className="text-xs font-mono font-normal leading-none px-2 py-0.5 h-[22px] bg-jp-surface-2 rounded text-jp-fg-muted border border-jp-divider inline-flex items-center">
                 v0.17.0
               </span>
             )}

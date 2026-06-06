@@ -1,10 +1,15 @@
 "use client";
 
+import { useEffect } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { useDragResize } from "@/hooks/useDragResize";
 import { useTranslation } from "@/hooks/useTranslation";
 import { SidebarStack } from "@/components/sidebar/SidebarStack";
+import {
+  RIGHT_SIDEBAR_DEFAULT_WIDTH,
+  useSidebarWidthStore,
+} from "@/stores/sidebarWidthStore";
 
 // ============================================================================
 // CONSTANTS
@@ -12,7 +17,7 @@ import { SidebarStack } from "@/components/sidebar/SidebarStack";
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
-const SIDEBAR_DEFAULT_WIDTH = 320; // equivalent to w-80
+const SIDEBAR_DEFAULT_WIDTH = RIGHT_SIDEBAR_DEFAULT_WIDTH; // 320 = w-80
 
 // ============================================================================
 // COMPONENT
@@ -46,6 +51,17 @@ export function RightSidebar({
     direction: "horizontal",
     edge: "left",
   });
+
+  // Mirror width + collapsed into the shared store so HeaderControls can
+  // size the STATUS block to match (one continuous vertical column).
+  const setRightWidth = useSidebarWidthStore((s) => s.setRightWidth);
+  const setRightCollapsed = useSidebarWidthStore((s) => s.setRightCollapsed);
+  useEffect(() => {
+    setRightWidth(sidebarWidth);
+  }, [sidebarWidth, setRightWidth]);
+  useEffect(() => {
+    setRightCollapsed(isCollapsed);
+  }, [isCollapsed, setRightCollapsed]);
 
   return (
     <aside

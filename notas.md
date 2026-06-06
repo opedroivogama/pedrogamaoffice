@@ -6,12 +6,14 @@
 id: 3062f106-5b73-43fd-b747-efb5951ca585
 title: PRÓXIMAS FEATURES
 created_at: 2026-06-03T14:12:17.812558+00:00
-updated_at: 2026-06-03T14:46:03.250914+00:00
+updated_at: 2026-06-03T22:27:33.32077+00:00
 ---
 
-\[\] Exportar notas como **PDF**
+LISTA DE FEATURES
 
-- [ ] ae
+- [ ] AGENTES NA TELA
+- [ ] RESTO
+- [ ]
 
 ---
 id: e8b272ff-97cf-4769-b0f5-fd56a852c84e

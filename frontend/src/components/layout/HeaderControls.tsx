@@ -7,7 +7,6 @@ import {
   Power,
   Trash2,
   HelpCircle,
-  History,
   Settings,
   Bell,
   Map,
@@ -16,11 +15,15 @@ import {
   MoreVertical,
   StickyNote,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAttentionStore, selectUnreadCount } from "@/stores/attentionStore";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useNotesStore } from "@/stores/notesStore";
+import {
+  selectRightSidebarEffectiveWidth,
+  useSidebarWidthStore,
+} from "@/stores/sidebarWidthStore";
 import { useTourStore } from "@/stores/tourStore";
 import { MenuPanel } from "@/components/sidebar/panels/MenuPanel";
 
@@ -94,6 +97,71 @@ export function HeaderControls({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Colapso responsivo: à medida que o header aperta, esconde botões
+  // inline na ordem (Notas → Reset → Reiniciar → Settings) e empurra eles
+  // pro menu de 3-pontinhos. Mede o "slack" — quanto espaço sobra entre
+  // a coluna esquerda (título + breadcrumb) e a coluna direita
+  // (botões + status). Se o slack ficar abaixo de SAFETY_MARGIN, colapsa
+  // um botão. NÃO mede header.scrollWidth porque a coluna esquerda tem
+  // `min-w-0 overflow-hidden`, que faz o header NUNCA overflowar — em
+  // vez disso, o conteúdo esquerdo é clipado silenciosamente e os blocos
+  // visualmente se "encostam". Histerese (48px) evita oscilação.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [collapseLevel, setCollapseLevel] = useState(0);
+  const MAX_COLLAPSE = 4;
+  const SAFETY_MARGIN = 24; // px mínimos de respiro entre as colunas
+  // Histerese precisa ser MAIOR que o botão mais largo (REINICIAR ~120px),
+  // senão oscila: colapsa → liberou 120px de slack → re-expande → encavala
+  // de novo → colapsa de novo...
+  const EXPAND_MARGIN = SAFETY_MARGIN + 130;
+
+  // Mirror the right sidebar's actual rendered width so the STATUS block
+  // forms one continuous vertical column with the sidebar below it. When
+  // the sidebar is collapsed, the status block shrinks to match (40px).
+  // Declarado ANTES do useLayoutEffect porque o effect depende de
+  // rightColumnWidth na sua dep list.
+  const rightColumnWidth = useSidebarWidthStore(
+    selectRightSidebarEffectiveWidth,
+  );
+  const rightCollapsed = useSidebarWidthStore((s) => s.rightCollapsed);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const header = el?.parentElement;
+    if (!el || !header) return;
+
+    const measure = () => {
+      const left = header.firstElementChild as HTMLElement | null;
+      if (!left) return;
+      // gap-4 do header = 16px entre LEFT e RIGHT (StatusToast é fixed,
+      // não participa do fluxo). Largura máxima que a coluna esquerda
+      // pode ocupar = headerWidth - gap - larguraNaturalDaDireita.
+      const HEADER_GAP = 16;
+      const maxLeftWidth = header.clientWidth - HEADER_GAP - el.scrollWidth;
+      const slack = maxLeftWidth - left.scrollWidth;
+      if (slack < SAFETY_MARGIN) {
+        setCollapseLevel((l) => Math.min(l + 1, MAX_COLLAPSE));
+      } else if (slack > EXPAND_MARGIN) {
+        setCollapseLevel((l) => Math.max(l - 1, 0));
+      }
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(header);
+    ro.observe(el);
+    const left = header.firstElementChild;
+    if (left instanceof Element) ro.observe(left);
+    return () => ro.disconnect();
+    // rightColumnWidth na dep list: quando a sidebar é redimensionada,
+    // o STATUS muda de largura → re-mede e re-colapsa se necessário.
+  }, [collapseLevel, rightColumnWidth]);
+
+  const hideNotes = collapseLevel >= 1;
+  const hideReset = collapseLevel >= 2;
+  const hideRestart = collapseLevel >= 3;
+  const hideSettings = collapseLevel >= 4;
+
   useEffect(() => {
     if (!menuOpen) return;
     function handleClickOutside(e: MouseEvent) {
@@ -113,32 +181,32 @@ export function HeaderControls({
   }, [menuOpen]);
 
   return (
-    <div className="flex gap-2 items-center flex-shrink-0">
-      {/* Notas — abre modal grande (Ctrl+Shift+N) */}
-      <button
-        onClick={openNotes}
-        title="Notas (Ctrl+Shift+N)"
-        className="flex items-center gap-2 px-3 py-1.5 bg-jp-gold/10 hover:bg-jp-gold/20 text-jp-gold border border-jp-gold/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
-      >
-        <StickyNote size={14} />
-        Notas
-      </button>
+    <div ref={containerRef} className="flex gap-2 items-center flex-shrink-0">
+      {/* Notas — abre modal grande (Ctrl+Shift+N). Primeiro a colapsar. */}
+      {!hideNotes && (
+        <button
+          onClick={openNotes}
+          title="Notas (Ctrl+Shift+N)"
+          className="flex items-center gap-2 px-3 py-1.5 bg-jp-gold/10 hover:bg-jp-gold/20 text-jp-gold border border-jp-gold/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
+        >
+          <StickyNote size={14} />
+          Notas
+        </button>
+      )}
 
-      {/* Reset — SEMPRE inline (movido pra fora do overflow per user) */}
-      <button
-        onClick={onReset}
-        className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
-      >
-        <RefreshCw size={14} />
-        {t("header.reset")}
-      </button>
+      {/* Reset — colapsa no nível 2. */}
+      {!hideReset && (
+        <button
+          onClick={onReset}
+          className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
+        >
+          <RefreshCw size={14} />
+          {t("header.reset")}
+        </button>
+      )}
 
-      {/* Clear DB / Debug agora moram só dentro do menu 3-pontinhos.
-          Removidos daqui pra cumprir o pedido: só Reset/Restart/Settings
-          ficam de forma constante no header. */}
-
-      {/* REINICIAR — sempre visível na parte superior, em qualquer viewport. */}
-      {onRestartBackend && (
+      {/* REINICIAR — colapsa no nível 3. */}
+      {onRestartBackend && !hideRestart && (
         <button
           onClick={() => void onRestartBackend()}
           disabled={restartingBackend}
@@ -153,44 +221,55 @@ export function HeaderControls({
         </button>
       )}
 
-      {unreadCount > 0 && (
-        <button
-          onClick={openCommandBar}
-          className="relative flex items-center gap-2 px-3 py-1.5 bg-jp-gold/10 hover:bg-jp-gold/20 text-jp-gold border border-jp-gold/30 rounded text-xs font-bold transition-colors"
-          title="Attention Queue"
-        >
-          <Bell className="w-3.5 h-3.5" />
-          <span className="absolute -top-1 -right-1 bg-jp-gold text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-            {unreadCount > 9 ? "9+" : unreadCount}
-          </span>
-        </button>
-      )}
-
-      {/* Histórico de notificações — sempre disponível, mostra contador
-          se houver entradas. Útil pra checar toasts que sumiram. */}
+      {/* Botão unificado: abre o modal de notificações na aba "Histórico".
+          O modal tem uma segunda aba "Comandos" (Command Palette com busca
+          fuzzy) — alternar é por clique nas abas. Shift+clique abre direto
+          na aba Comandos. Badge dourado = pendências ao vivo; cinza =
+          contador do histórico. */}
       <button
-        onClick={openHistory}
-        title="Histórico de notificações"
-        className="relative flex items-center justify-center w-8 h-8 bg-jp-surface-3/25 hover:bg-jp-surface-3/40 text-jp-fg-muted border border-jp-border-light/30 rounded transition-colors"
-        aria-label="Histórico de notificações"
+        onClick={(e) => {
+          if (e.shiftKey) openCommandBar();
+          else openHistory();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openCommandBar();
+        }}
+        title={
+          unreadCount > 0
+            ? `${unreadCount} pendência${unreadCount === 1 ? "" : "s"} — clique abre histórico, troque pra aba "Comandos" se preferir (Shift+clique = direto em Comandos)`
+            : `Notificações — histórico + comandos (Shift+clique = aba Comandos${historyCount > 0 ? `, ${historyCount} entrada${historyCount === 1 ? "" : "s"} no histórico` : ""})`
+        }
+        aria-label="Notificações e comandos"
+        className={`relative flex items-center justify-center w-8 h-8 rounded border transition-colors ${
+          unreadCount > 0
+            ? "bg-jp-gold/15 hover:bg-jp-gold/25 text-jp-gold border-jp-gold/40"
+            : "bg-jp-surface-3/25 hover:bg-jp-surface-3/40 text-jp-fg-muted border-jp-border-light/30"
+        }`}
       >
-        <History size={14} />
-        {historyCount > 0 && (
+        <Bell size={14} />
+        {unreadCount > 0 ? (
+          <span className="absolute -top-1 -right-1 bg-jp-gold text-black text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        ) : historyCount > 0 ? (
           <span className="absolute -top-1 -right-1 bg-jp-surface-2 text-jp-fg-dim text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center border border-jp-divider-soft">
             {historyCount > 99 ? "99+" : historyCount}
           </span>
-        )}
+        ) : null}
       </button>
 
-      {/* Settings — SEMPRE inline (movido pra fora do overflow per user) */}
-      <button
-        onClick={onOpenSettings}
-        data-tour-id="settings-btn"
-        className="flex items-center gap-2 px-3 py-1.5 bg-jp-surface-3/25 hover:bg-jp-surface-3/40 text-jp-fg-muted border border-jp-border-light/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
-      >
-        <Settings size={14} />
-        {t("header.settings")}
-      </button>
+      {/* Settings — último a colapsar (nível 4). */}
+      {!hideSettings && (
+        <button
+          onClick={onOpenSettings}
+          data-tour-id="settings-btn"
+          className="flex items-center gap-2 px-3 py-1.5 bg-jp-surface-3/25 hover:bg-jp-surface-3/40 text-jp-fg-muted border border-jp-border-light/30 rounded text-xs font-bold transition-colors whitespace-nowrap"
+        >
+          <Settings size={14} />
+          {t("header.settings")}
+        </button>
+      )}
 
       {/* Help/Debug/ClearDB foram pro menu 3-pontinhos abaixo. */}
 
@@ -223,6 +302,67 @@ export function HeaderControls({
 
             {/* Other actions */}
             <div className="py-1">
+              {/* Botões inline colapsados pelo overflow responsivo
+                  reaparecem aqui em ordem (Notas → Reset → Reiniciar →
+                  Settings). Quando o header está largo, esta seção fica
+                  vazia. */}
+              {hideNotes && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openNotes();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-jp-gold hover:bg-jp-surface-2 text-xs font-bold transition-colors whitespace-nowrap"
+                >
+                  <StickyNote size={14} />
+                  Notas
+                </button>
+              )}
+              {hideReset && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onReset();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-amber-500 hover:bg-jp-surface-2 text-xs font-bold transition-colors whitespace-nowrap"
+                >
+                  <RefreshCw size={14} />
+                  {t("header.reset")}
+                </button>
+              )}
+              {hideRestart && onRestartBackend && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void onRestartBackend();
+                  }}
+                  disabled={restartingBackend}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-amber-400 hover:bg-jp-surface-2 text-xs font-bold transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-wait"
+                >
+                  <Power
+                    size={14}
+                    className={restartingBackend ? "animate-spin" : ""}
+                  />
+                  {restartingBackend ? "REINICIANDO..." : "REINICIAR"}
+                </button>
+              )}
+              {hideSettings && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenSettings();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-jp-fg-muted hover:bg-jp-surface-2 text-xs font-bold transition-colors whitespace-nowrap"
+                >
+                  <Settings size={14} />
+                  {t("header.settings")}
+                </button>
+              )}
+
               {/* Simular / Parar simulação — toggle baseado em
                   simulationRunning. Resgatado da versão cca48b2 onde era
                   inline; agora vive no menu ⋮. */}
@@ -302,32 +442,44 @@ export function HeaderControls({
         )}
       </div>
 
-      {/* Connection and AI status */}
-      <div className="flex flex-col items-end border-l border-jp-divider-soft pl-4 whitespace-nowrap">
-        <span className="text-[10px] uppercase font-bold text-jp-fg-dim tracking-widest leading-none mb-1">
-          {t("header.status")}
-        </span>
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex items-center gap-1.5 font-mono text-xs ${
-              isConnected ? "text-emerald-400" : "text-rose-500"
-            }`}
-          >
-            <Activity
-              size={12}
-              className={isConnected ? "animate-pulse" : ""}
-            />
-            {isConnected ? t("header.connected") : t("header.disconnected")}
-          </div>
-          <div
-            className={`flex items-center gap-1.5 font-mono text-xs ${
-              aiSummaryEnabled ? "text-violet-400" : "text-jp-fg-dim"
-            }`}
-          >
-            <span className="text-[10px]">AI</span>
-            {aiSummaryEnabled ? t("header.aiOn") : t("header.aiOff")}
-          </div>
-        </div>
+      {/* Connection and AI status — width mirrors the RightSidebar's actual
+          rendered width (via useSidebarWidthStore), so resizing or
+          collapsing the sidebar keeps the header status block and the
+          panels below it as a single continuous vertical column. */}
+      <div
+        className={`flex flex-col items-end border-l border-jp-divider-soft whitespace-nowrap flex-shrink-0 overflow-hidden ${
+          rightCollapsed ? "pl-0" : "pl-4"
+        }`}
+        style={{ width: rightColumnWidth }}
+      >
+        {!rightCollapsed && (
+          <>
+            <span className="text-[10px] uppercase font-bold text-jp-fg-dim tracking-widest leading-none mb-1">
+              {t("header.status")}
+            </span>
+            <div className="flex items-center gap-3">
+              <div
+                className={`flex items-center gap-1.5 font-mono text-xs ${
+                  isConnected ? "text-emerald-400" : "text-rose-500"
+                }`}
+              >
+                <Activity
+                  size={12}
+                  className={isConnected ? "animate-pulse" : ""}
+                />
+                {isConnected ? t("header.connected") : t("header.disconnected")}
+              </div>
+              <div
+                className={`flex items-center gap-1.5 font-mono text-xs ${
+                  aiSummaryEnabled ? "text-violet-400" : "text-jp-fg-dim"
+                }`}
+              >
+                <span className="text-[10px]">AI</span>
+                {aiSummaryEnabled ? t("header.aiOn") : t("header.aiOff")}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

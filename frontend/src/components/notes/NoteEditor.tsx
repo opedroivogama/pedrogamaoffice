@@ -8,13 +8,14 @@ import {
   Link as LinkIcon,
   List,
   ListOrdered,
+  ListTodo,
   Quote,
   Redo2,
   Strikethrough,
   Undo2,
 } from "lucide-react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import { Extension, wrappingInputRule } from "@tiptap/core";
+import { Extension, InputRule } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -25,16 +26,23 @@ import TurndownService from "turndown";
 import { useEffect, useMemo, useRef } from "react";
 
 // Atalho: digitar `[] `, `[ ] ` ou `[x] ` no início da linha vira um task
-// item. wrappingInputRule envolve o nó atual em taskList → taskItem.
+// item. wrappingInputRule não casa direito porque taskItem tem atributo
+// `checked` — usamos InputRule manual que apaga o match e chama
+// toggleTaskList. `[x]` cria já marcado.
 const TaskListShortcut = Extension.create({
   name: "taskListShortcut",
   addInputRules() {
-    const type = this.editor.schema.nodes.taskList;
-    if (!type) return [];
     return [
-      wrappingInputRule({
+      new InputRule({
         find: /^\[( |x|X)?\]\s$/,
-        type,
+        handler: ({ range, match, chain }) => {
+          const checked = (match[1] ?? "").toLowerCase() === "x";
+          chain()
+            .deleteRange(range)
+            .toggleTaskList()
+            .updateAttributes("taskItem", { checked })
+            .run();
+        },
       }),
     ];
   },
@@ -293,6 +301,13 @@ function Toolbar({ editor }: { editor: Editor }) {
         title="Lista numerada"
       >
         <ListOrdered size={16} />
+      </ToolbarButton>
+      <ToolbarButton
+        active={editor.isActive("taskList")}
+        onClick={() => editor.chain().focus().toggleTaskList().run()}
+        title="Checklist (dica: digite '[] ' no início da linha)"
+      >
+        <ListTodo size={16} />
       </ToolbarButton>
       <ToolbarButton
         active={editor.isActive("blockquote")}

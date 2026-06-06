@@ -125,12 +125,17 @@ export const AccordionPanel = forwardRef<HTMLDivElement, AccordionPanelProps>(
         : "min-h-0 flex-grow";
 
     return (
+      // suppressHydrationWarning: o @dnd-kit injeta aria-describedby com um
+      // contador interno (DndDescribedBy-N) que numera diferente no SSR e
+      // no cliente — sem isso a hidratação avisa em TODOS os painéis. O
+      // warning é cosmético; o atributo do cliente prevalece e mantém a11y.
       <div
         ref={setRefs}
         style={mergedStyle}
         className={`flex flex-col bg-jp-surface-1 border border-jp-divider-soft rounded-lg overflow-hidden ${
           isDragging ? "shadow-lg ring-1 ring-jp-gold/40 opacity-90" : ""
         } ${sizingClass}`}
+        suppressHydrationWarning
         {...dragAttributes}
       >
         {/* Header */}

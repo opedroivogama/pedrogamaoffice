@@ -58,7 +58,11 @@ export function Breadcrumb(): React.ReactNode {
     };
   }, [open]);
 
-  if (view === "single") return null;
+  // Só esconde se NÃO há andares configurados — caso contrário, o dropdown
+  // precisa ficar disponível mesmo em "single" view pra permitir navegar
+  // pro multi-andar (building/floor).
+  const hasFloors = (buildingConfig?.floors.length ?? 0) > 0;
+  if (view === "single" && !hasFloors) return null;
 
   const buildingName = buildingConfig?.buildingName ?? t("navigation.building");
   const isLobby = floorId === LOBBY_FLOOR_ID;
@@ -109,13 +113,13 @@ export function Breadcrumb(): React.ReactNode {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={triggerLabel}
-        className="flex items-center gap-1.5 px-2 py-1 rounded text-sm font-mono text-jp-fg-muted hover:text-white hover:bg-jp-surface-2/60 transition-colors whitespace-nowrap"
+        className="text-xs font-mono font-normal px-2 py-0.5 bg-jp-surface-2 rounded text-jp-fg-muted border border-jp-divider hover:text-white hover:bg-jp-surface-3 hover:border-jp-gold/40 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
       >
-        {/* Compact form (below xl) — just 3 vertical dots */}
-        <MoreVertical size={16} className="min-[1700px]:hidden" />
+        {/* Compact form (below lg) — just 3 vertical dots */}
+        <MoreVertical size={16} className="lg:hidden" />
 
-        {/* Full form (xl+) — icon + label + chevron */}
-        <span className="hidden min-[1700px]:flex items-center gap-1.5">
+        {/* Full form (lg+) — icon + label + chevron */}
+        <span className="hidden lg:flex items-center gap-1.5">
           <span className="flex items-center justify-center w-4">
             {triggerIcon}
           </span>
