@@ -235,11 +235,16 @@ export function applyBezierSmoothing(
 export function smoothPath(path: Position[]): Position[] {
   if (path.length <= 1) return path;
 
-  // Pedro 2026-06-06: funnel + bezier transformavam paths cardinais (4-dir
-  // do A*) em diagonais e curvas que cortavam caminho mais perto do destino.
-  // Pedro queria movimento estritamente esquerda/direita/cima/baixo, então
-  // mantemos só a remoção de waypoints colineares e dedupe.
-  const smoothed = removeCollinearPoints(path);
+  // Step 1: Remove collinear points
+  let smoothed = removeCollinearPoints(path);
+
+  // Step 2: Apply funnel algorithm to skip unnecessary waypoints
+  smoothed = applyFunnelAlgorithm(smoothed);
+
+  // Step 3: Apply bezier smoothing at corners
+  smoothed = applyBezierSmoothing(smoothed);
+
+  // Step 4: Final cleanup - remove any duplicate adjacent points
   return removeDuplicatePoints(smoothed);
 }
 

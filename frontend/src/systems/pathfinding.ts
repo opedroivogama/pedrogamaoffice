@@ -51,7 +51,6 @@ export function calculatePath(
   start: Position,
   end: Position,
   agentId?: string,
-  customWalkable?: (gx: number, gy: number) => boolean,
 ): Position[] {
   // Quick check: already at destination
   const dx = end.x - start.x;
@@ -63,7 +62,7 @@ export function calculatePath(
   }
 
   // Find path using A*
-  const rawPath = findWorldPath(start, end, agentId, customWalkable);
+  const rawPath = findWorldPath(start, end, agentId);
 
   // If A* returns empty or very short path, return minimal path
   // DO NOT fallback to direct path as it may go through obstacles
