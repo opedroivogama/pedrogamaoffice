@@ -6,6 +6,21 @@ import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/canvas";
 import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
 import { directionFromDelta } from "@/hooks/usePedroSprites";
 
+/** Offset Y entre `position.y` (base do canvas do sprite) e o pé VISUAL do
+ *  personagem. Mantido aqui para que OfficeGame / CollisionEditor possam
+ *  alinhar zIndex/overlay com o pé. Pedro 2026-06-06. */
+export const CHARACTER_FOOT_OFFSET_Y: Record<string, number> = {
+  boss: -40,
+  pedro: -80,
+  "pedro-samurai": -80,
+  "gestor-trafego": -80,
+  estagiario: -60,
+  "chrome-dummy": -60,
+};
+export function getCharacterFootOffsetY(entityId: string): number {
+  return CHARACTER_FOOT_OFFSET_Y[entityId] ?? -60;
+}
+
 /** Resolve current pixel position of a controlled entity (boss / user avatar
  *  / agent). Returns null if the id is unknown. Mirrors the position-lookup
  *  logic used by the keyboard movement step. */
