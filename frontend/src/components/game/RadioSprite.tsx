@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import { useTick } from "@pixi/react";
+import { useCallback, type ReactNode } from "react";
 import { type Graphics, type Texture } from "pixi.js";
-import { useRadioStore } from "@/stores/radioStore";
 import { ContactShadow } from "./ContactShadow";
 
 interface RadioSpriteProps {
@@ -15,17 +13,6 @@ interface RadioSpriteProps {
   cornerTableTexture?: Texture | null;
   radioTexture?: Texture | null;
 }
-
-interface Note {
-  id: number;
-  bornAt: number;
-  offsetX: number;
-  drift: number;
-  symbol: "♪" | "♫" | "♩";
-}
-
-const NOTE_LIFETIME_MS = 2200;
-const NOTE_SPAWN_MS = 650;
 
 // ============================================================================
 // BOOMBOX — ISOMETRIC 3/4 VIEW (chunky pixel art)
@@ -45,7 +32,7 @@ const KNOB_DARK = 0x2a2620;
 const KNOB_HI = 0xc4ad7a;      // brass-ish accent (antenna tip / port)
 const CABLE = 0x1a1815;        // black cable
 
-function BoomboxIso(): ReactNode {
+export function BoomboxIso(): ReactNode {
   const draw = useCallback((g: Graphics) => {
     g.clear();
 
@@ -130,42 +117,6 @@ function BoomboxIso(): ReactNode {
 }
 
 // ============================================================================
-// MUSIC NOTE
-// ============================================================================
-
-function MusicNote({
-  note,
-  now,
-}: {
-  note: Note;
-  now: number;
-}): ReactNode {
-  const age = now - note.bornAt;
-  const t = age / NOTE_LIFETIME_MS;
-  if (t >= 1) return null;
-  const y = -40 - t * 36; // rise upward (from above the boombox)
-  const x = note.offsetX + Math.sin(t * Math.PI * 2 + note.drift) * 6;
-  const alpha = 1 - t;
-
-  return (
-    <pixiContainer x={x} y={y} alpha={alpha} scale={0.85}>
-      <pixiText
-        text={note.symbol}
-        anchor={0.5}
-        resolution={2}
-        style={{
-          fontSize: 40,
-          fill: 0xf4d57a,
-          fontFamily: "serif",
-          fontWeight: "bold",
-          stroke: { width: 4, color: 0x1a1a18 },
-        }}
-      />
-    </pixiContainer>
-  );
-}
-
-// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -176,37 +127,9 @@ export function RadioSprite({
   cornerTableTexture,
   radioTexture,
 }: RadioSpriteProps): ReactNode {
-  const isPlaying = useRadioStore((s) => s.isPlaying);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const lastSpawnRef = useRef(0);
-  const noteIdRef = useRef(0);
-  const elapsedRef = useRef(0);
-  const [now, setNow] = useState(0);
-
-  useTick((ticker) => {
-    elapsedRef.current += ticker.deltaMS;
-    const t = elapsedRef.current;
-    setNow(t);
-
-    if (isPlaying && t - lastSpawnRef.current >= NOTE_SPAWN_MS) {
-      lastSpawnRef.current = t;
-      const symbols: Note["symbol"][] = ["♪", "♫", "♩"];
-      const newNote: Note = {
-        id: noteIdRef.current++,
-        bornAt: t,
-        offsetX: (Math.random() - 0.5) * 18,
-        drift: Math.random() * Math.PI * 2,
-        symbol: symbols[Math.floor(Math.random() * symbols.length)],
-      };
-      setNotes((prev) => [...prev, newNote]);
-    }
-
-    if (Math.random() < 0.02) {
-      setNotes((prev) =>
-        prev.filter((n) => t - n.bornAt < NOTE_LIFETIME_MS),
-      );
-    }
-  });
+  // Notas musicais migraram pro rádio de parede (FLOOR_RADIO_POSITION) —
+  // veja <MusicNotesAura/> em OfficeGame.tsx. Esse rádio do canto continua
+  // como objeto decorativo silencioso.
 
   // Boombox stays planted — it's a physical object on a desk. No bob.
   const bob = 0;
@@ -250,11 +173,6 @@ export function RadioSprite({
           <BoomboxIso />
         </pixiContainer>
       )}
-
-      {/* Music notes rising from above */}
-      {notes.map((note) => (
-        <MusicNote key={note.id} note={note} now={now} />
-      ))}
     </pixiContainer>
   );
 }

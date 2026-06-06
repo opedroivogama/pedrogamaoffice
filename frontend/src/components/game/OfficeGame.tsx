@@ -24,6 +24,7 @@ import {
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
+  Fragment,
   useMemo,
   useState,
   useEffect,
@@ -87,7 +88,7 @@ import {
   COFFEE_MACHINE_POSITION,
   PRINTER_STATION_POSITION,
   PLANT_POSITION,
-  RADIO_POSITION,
+  FLOOR_RADIO_POSITION,
   BOSS_RUG_POSITION,
   TRASH_CAN_OFFSET,
 } from "@/constants/positions";
@@ -122,21 +123,24 @@ import {
 } from "@/constants/chairs";
 import { TrashCanSprite } from "./TrashCanSprite";
 import { WallClock } from "./WallClock";
+import { MusicNotesAura } from "./MusicNotesAura";
+import { useElevatorModalStore } from "@/stores/elevatorModalStore";
+import { useRadioModalStore } from "@/stores/radioModalStore";
 import { Whiteboard } from "./Whiteboard";
 import { CityWindow } from "./CityWindow";
 import { WallCalendar } from "./WallCalendar";
 import { Elevator, isAgentInElevator } from "./Elevator";
 import { PrinterStation } from "./PrinterStation";
-import { RadioSprite } from "./RadioSprite";
 import { ContactShadow } from "./ContactShadow";
 import { LightGlow } from "./LightGlow";
 import { DebugOverlays } from "./DebugOverlays";
 import { CollisionEditor, type PaintMode } from "./CollisionEditor";
-import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
+import { getNavigationGrid, TILE_SIZE, TileType } from "@/systems/navigationGrid";
 import { shouldIgnoreShortcut } from "@/utils/shortcutGate";
 import { calculatePath } from "@/systems/pathfinding";
 import { useChunkedBubble } from "@/hooks/useChunkedBubble";
 import { ClickToMovePath } from "./ClickToMovePath";
+import { getCharacterFootOffsetY } from "@/hooks/usePlayerControl";
 import type { Position } from "@/types";
 import {
   DeskSurfacesBase,
@@ -278,11 +282,93 @@ interface WanderingBossProps {
     backIdle: Texture | null;
     backStep1: Texture | null;
     backStep2: Texture | null;
+    /** Static rotation pra diagonal — sem walk animation, só vira o sprite. */
+    seIdle?: Texture | null;
+    swIdle?: Texture | null;
+    neIdle?: Texture | null;
+    nwIdle?: Texture | null;
   };
   /** Breathing-idle frames for the south direction. Cycled when standing still
    *  facing south. Other directions fall back to static idle. */
   idleFrames?: (Texture | null)[] | null;
   tint?: number;
+}
+
+/** Toast HTML-overlay com auto-dismiss em 2.5s que aparece quando o
+ *  usePlayerControl não consegue achar caminho até o destino. Pedro 2026-06-06. */
+function PathErrorToast(): ReactNode {
+  const msg = useGameStore((s) => s.pathErrorMessage);
+  const setMsg = useGameStore((s) => s.setPathErrorMessage);
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(null), 2500);
+    return () => clearTimeout(t);
+  }, [msg, setMsg]);
+  if (!msg) return null;
+  return (
+    <div
+      className="absolute top-6 left-1/2 -translate-x-1/2 z-50 rounded border px-4 py-2 text-sm shadow-lg"
+      style={{
+        background: "rgba(14, 14, 14, 0.94)",
+        borderColor: "#c23838",
+        color: "#fde7b0",
+        fontFamily: "Montserrat, sans-serif",
+        fontWeight: 600,
+        pointerEvents: "none",
+      }}
+    >
+      ⚠ {msg}
+    </div>
+  );
+}
+
+/** Plumbob overlay — renderiza um único Plumbob acima de TUDO (depois no
+ *  JSX = sempre na frente) que segue o personagem controlado. Pedro 2026-06-06. */
+function PlumbobOverlay(): ReactNode {
+  const controlledId = useGameStore((s) => s.controlledEntityId);
+  const bossPos = useGameStore((s) => s.boss.position);
+  const userPos = useGameStore((s) =>
+    controlledId ? s.userAvatarPositions.get(controlledId) : undefined,
+  );
+  const agent = useGameStore((s) =>
+    controlledId ? s.agents.get(controlledId) : undefined,
+  );
+  if (!controlledId) return null;
+  let x: number;
+  let y: number;
+  let plumbobY: number;
+  if (controlledId === "boss") {
+    x = bossPos.x;
+    y = bossPos.y;
+    plumbobY = -240; // ~12px acima do topo do Claudius em pé
+  } else if (userPos) {
+    // Se sentado, ancora visualmente na cadeira e ajusta o offset pra que
+    // a distância plumbob↔crânio seja a mesma da versão em pé.
+    // Em pé (size≈256-282, topPad≈58/248): crânio em -216, plumbob em -270
+    // → 54px acima do crânio.
+    // Sentado: crânio em -SEATED_CROP_RATIO*216 ≈ -125, então -125-54 = -179.
+    const chair = findNearestChair(userPos, 30);
+    if (chair) {
+      x = chair.x;
+      y = chair.deskTopY;
+      plumbobY = -179;
+    } else {
+      x = userPos.x;
+      y = userPos.y;
+      plumbobY = -270; // acima da cabeça do UserAvatar (size≈256-282)
+    }
+  } else if (agent) {
+    x = agent.currentPosition.x;
+    y = agent.currentPosition.y;
+    plumbobY = -120;
+  } else {
+    return null;
+  }
+  return (
+    <pixiContainer x={x} y={y}>
+      <Plumbob y={plumbobY} />
+    </pixiContainer>
+  );
 }
 
 function WanderingBoss({
@@ -304,9 +390,10 @@ function WanderingBoss({
 
   const prevPosRef = useRef<{ x: number; y: number } | null>(null);
   const lastMoveTsRef = useRef<number>(0);
-  const [facing, setFacing] = useState<"south" | "north" | "east" | "west">(
-    "south",
-  );
+  const [facing, setFacing] = useState<
+    "south" | "north" | "east" | "west" |
+    "south-east" | "south-west" | "north-east" | "north-west"
+  >("south");
   const [frameIdx, setFrameIdx] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
   const [idleTime, setIdleTime] = useState(0);
@@ -323,8 +410,18 @@ function WanderingBoss({
     const dy = position.y - prev.y;
     if (Math.hypot(dx, dy) < 0.5) return;
     lastMoveTsRef.current = performance.now();
-    // Resolve to 4 cardinal directions.
-    if (Math.abs(dx) > Math.abs(dy)) {
+    // Resolve to 8 directions — usa as diagonais quando |dx|/|dy| são similares.
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    const ratio = Math.max(adx, ady) / Math.max(0.001, Math.min(adx, ady));
+    const isDiagonal = ratio < 2.5;
+    if (isDiagonal && adx > 0.1 && ady > 0.1) {
+      if (dy > 0) {
+        setFacing(dx > 0 ? "south-east" : "south-west");
+      } else {
+        setFacing(dx > 0 ? "north-east" : "north-west");
+      }
+    } else if (adx > ady) {
       setFacing(dx > 0 ? "east" : "west");
     } else {
       setFacing(dy > 0 ? "south" : "north");
@@ -375,6 +472,17 @@ function WanderingBoss({
     texture = isMoving
       ? cycle[Math.floor(frameIdx) % cycle.length] ?? textures.backIdle
       : textures.backIdle;
+  } else if (effectiveFacing === "south-east") {
+    // Diagonal — sem walk animation, só rotação estática.
+    texture = textures.seIdle ?? textures.sideIdle;
+  } else if (effectiveFacing === "south-west") {
+    texture = textures.swIdle ?? textures.sideIdle;
+    if (!textures.swIdle) flipX = true; // fallback: espelha side
+  } else if (effectiveFacing === "north-east") {
+    texture = textures.neIdle ?? textures.backIdle;
+  } else if (effectiveFacing === "north-west") {
+    texture = textures.nwIdle ?? textures.backIdle;
+    if (!textures.nwIdle) flipX = true;
   } else {
     // east / west — use side frames, flip horizontally for west
     const cycle = [textures.sideIdle, textures.sideStep1, textures.sideIdle, textures.sideStep2];
@@ -386,9 +494,12 @@ function WanderingBoss({
 
   if (!texture) return null;
 
-  // Auto-seated: if the wandering boss is parked at any chair, render the
-  // cropped (waist-up) sprite at that chair so it looks like he's sitting.
-  const chair = findNearestChair(position, 30);
+  // Sentado só via click explícito (Pedro 2026-06-06): leia o estado
+  // entitySeats em vez de findNearestChair por proximidade. WanderingBoss
+  // = "boss".
+  const chair = useGameStore(
+    (s) => s.entitySeats.get("boss") ?? null,
+  );
   const seatedTexture = useMemo(() => {
     if (!chair || !texture) return null;
     const src = texture.source;
@@ -403,6 +514,10 @@ function WanderingBoss({
     });
   }, [chair, texture]);
 
+  // Quando sentado em QUALQUER cadeira (boss desk ou outra), renderiza
+  // versão cropada na cadeira. Sem isso, sentar em cadeira de agent fazia
+  // Claudius sumir (BossSprite esconde com isAway, WanderingBoss retornava
+  // null). Pedro 2026-06-06.
   if (chair && seatedTexture) {
     const seatedHeight = 128 * SEATED_CROP_RATIO;
     return (
@@ -411,48 +526,25 @@ function WanderingBoss({
         y={chair.deskTopY}
         zIndex={chair.deskTopY - 1}
       >
-        <pixiContainer scale={{ x: 1, y: secondaryStretchY }}>
-          <pixiSprite
-            texture={seatedTexture}
-            anchor={{ x: 0.5, y: 1 }}
-            x={0}
-            y={0}
-            width={128}
-            height={seatedHeight}
-            tint={tint}
-          />
-        </pixiContainer>
-        <pixiContainer y={-seatedHeight - 59}>
-          <pixiGraphics
-            draw={(g) => {
-              g.clear();
-              g.roundRect(-32, -10, 64, 18, 5);
-              g.fill({ color: 0x0e0e0e, alpha: 0.9 });
-              g.stroke({ color: 0xb8972a, width: 1 });
-            }}
-          />
-          <pixiText
-            text="Claudius"
-            anchor={0.5}
-            resolution={2}
-            style={{
-              fontFamily: "monospace",
-              fontSize: 14,
-              fill: 0xfde7b0,
-              fontWeight: "bold",
-            }}
-          />
-        </pixiContainer>
-        {/* Plumbob sentado — mesma distância badge↔plumbob (38px) usada no
-            estado em pé (badge=-187, plumbob=-225). Mantém continuidade
-            visual quando Claudius senta enquanto está sendo controlado. */}
-        {isControlled && <Plumbob y={-seatedHeight - 97} />}
+        <pixiSprite
+          texture={seatedTexture}
+          anchor={{ x: 0.5, y: 1 }}
+          x={0}
+          y={0}
+          width={128}
+          height={seatedHeight}
+          tint={tint}
+        />
       </pixiContainer>
     );
   }
 
   return (
-    <pixiContainer x={position.x} y={position.y} zIndex={position.y}>
+    <pixiContainer
+      x={position.x}
+      y={position.y}
+      zIndex={position.y + getCharacterFootOffsetY("boss")}
+    >
       {/* Outer scale.y faz o stretch do idle secundário sem interferir no
           flip horizontal que continua no sprite (scale.x). Wrap só envolve
           o sprite — badge e WorkIndicator ficam fora pra não stretchar. */}
@@ -504,10 +596,9 @@ function WanderingBoss({
           <WorkIndicator />
         </pixiContainer>
       )}
-      {/* Sims-style plumbob — flutua acima da badge enquanto Claudius está
-          sendo controlado. Badge em y=-187, plumbob ~38px acima do topo
-          da pill. */}
-      {isControlled && <Plumbob y={-225} />}
+      {/* Plumbob renderizado em layer separado (PlumbobOverlay no fim do
+          JSX) pra ficar sempre acima de qualquer coisa, incluindo o tampo
+          das mesas. Pedro 2026-06-06. */}
     </pixiContainer>
   );
 }
@@ -545,6 +636,9 @@ interface UserAvatarProps {
   /** Quando false, o balão de fala não é renderizado aqui — o caller desenha
    *  numa layer top-level pra garantir que fica acima de outros personagens. */
   renderBubble?: boolean;
+  /** Quando false, a badge com o nome não é renderizada inline — o caller
+   *  desenha em <UserAvatarLabelsLayer/> top-level pra sempre sobrepor. */
+  renderLabel?: boolean;
   /** Duração de cada frame do idle em ms. Default 200 (~5fps). Aumentar pra
    *  desacelerar a respiração quando o personagem tem muitos frames de idle. */
   idleFrameDurationMs?: number;
@@ -569,6 +663,7 @@ function UserAvatar({
   directionalTextures,
   walkFrames,
   renderBubble = true,
+  renderLabel = true,
   idleFrameDurationMs = 200,
   withShadow = false,
   shadowWidth = 80,
@@ -666,9 +761,19 @@ function UserAvatar({
 
   if (!texture || !position) return null;
 
-  // Auto-seated: if this avatar is parked next to a chair, render the
-  // cropped (waist-up) sprite anchored to the desk-top of that chair.
-  const chair = findNearestChair(position, 30);
+  // Sentado só via click explícito (Pedro 2026-06-06): leia entitySeats.
+  const chair = useGameStore(
+    (s) => s.entitySeats.get(id) ?? null,
+  );
+
+  // Quando sentado, força facing=south (de frente pra câmera).
+  // Pedido do Pedro em 2026-06-06.
+  if (chair && directionalTextures) {
+    const southFrames = directionalTextures["south"];
+    if (southFrames && southFrames.length > 0) {
+      activeTexture = southFrames[0];
+    }
+  }
 
   if (chair && activeTexture) {
     const src = activeTexture.source;
@@ -694,8 +799,69 @@ function UserAvatar({
           width={size}
           height={seatedRenderH}
         />
-        {/* Label sits just above the visible head */}
-        <pixiContainer y={-seatedRenderH - 8}>
+        {/* Label sits just above the visible head — 8px acima do crânio
+            sentado (sprite cropped pra SEATED_CROP_RATIO). */}
+        {renderLabel && (
+          <pixiContainer
+            y={-(size * SEATED_CROP_RATIO * (1 - topPaddingRatio) + 8)}
+          >
+            <pixiGraphics
+              draw={(g) => {
+                const pillW = Math.max(56, label.length * 11 + 20);
+                const pillH = 22;
+                g.clear();
+                g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+                g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+                g.stroke({ color: 0xb8972a, width: 1.5 });
+              }}
+            />
+            <pixiText
+              text={label}
+              anchor={0.5}
+              resolution={2}
+              style={{
+                fontFamily: "monospace",
+                fontSize: 18,
+                fill: 0xfde7b0,
+                fontWeight: "bold",
+              }}
+            />
+          </pixiContainer>
+        )}
+        {/* Plumbob foi pra PlumbobOverlay no fim do JSX. */}
+      </pixiContainer>
+    );
+  }
+
+  return (
+    <pixiContainer
+      x={position.x}
+      y={position.y}
+      zIndex={position.y + getCharacterFootOffsetY(id)}
+      onPointerTap={handleTap}
+      interactive={clickToFocusEnabled}
+    >
+      {/* Sombra elíptica opt-in sob os pés — renderizada ANTES do sprite
+          pra ficar atrás. Anchor do sprite é y:1; y=-44 puxa a elipse pra
+          junto da base do chibi (sprites com padding inferior ficam
+          "flutuando" se a sombra ficar no y=0 do container). */}
+      {withShadow && (
+        <ContactShadow width={shadowWidth} y={-71} alpha={0.245} />
+      )}
+      {/* Static full body — no shadow, no breathing animation.
+          When directionalTextures is provided, swap based on movement. */}
+      <pixiSprite
+        texture={activeTexture ?? undefined}
+        anchor={{ x: 0.5, y: 1 }}
+        x={0}
+        y={0}
+        width={size}
+        height={size}
+      />
+      {/* Dark pill with gold border behind the name for emphasis. Só inline
+          quando renderLabel=true. Senão caller desenha em layer top-level. */}
+      {renderLabel && (
+        <pixiContainer y={-(size * (1 - topPaddingRatio) + 8)}>
           <pixiGraphics
             draw={(g) => {
               const pillW = Math.max(56, label.length * 11 + 20);
@@ -718,73 +884,8 @@ function UserAvatar({
             }}
           />
         </pixiContainer>
-        {/* Mesma distância badge↔plumbob (62px) usada no estado em pé do
-            UserAvatar, pra continuidade visual quando o avatar senta. */}
-        {isControlled && <Plumbob y={-seatedRenderH - 70} />}
-      </pixiContainer>
-    );
-  }
-
-  return (
-    <pixiContainer
-      x={position.x}
-      y={position.y}
-      zIndex={position.y}
-      onPointerTap={handleTap}
-      interactive={clickToFocusEnabled}
-    >
-      {/* Sombra elíptica opt-in sob os pés — renderizada ANTES do sprite
-          pra ficar atrás. Anchor do sprite é y:1; y=-44 puxa a elipse pra
-          junto da base do chibi (sprites com padding inferior ficam
-          "flutuando" se a sombra ficar no y=0 do container). */}
-      {withShadow && (
-        <ContactShadow width={shadowWidth} y={-71} alpha={0.245} />
       )}
-      {/* Static full body — no shadow, no breathing animation.
-          When directionalTextures is provided, swap based on movement. */}
-      <pixiSprite
-        texture={activeTexture ?? undefined}
-        anchor={{ x: 0.5, y: 1 }}
-        x={0}
-        y={0}
-        width={size}
-        height={size}
-      />
-      {/* Dark pill with gold border behind the name for emphasis.
-          Anchored to the actual top of the head (accounting for transparent
-          padding above the character in the source sprite). Gap reduzido
-          de 19 → 8 pra bater EXATAMENTE com o branch sentado (linha 612),
-          onde a badge fica a 8px acima do topo do sprite cortado. Mesmo
-          tamanho de pill (pillW/pillH/fontSize) já tá pareado. */}
-      <pixiContainer y={-(size * (1 - topPaddingRatio) + 8)}>
-        <pixiGraphics
-          draw={(g) => {
-            const pillW = Math.max(56, label.length * 11 + 20);
-            const pillH = 22;
-            g.clear();
-            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
-            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
-            g.stroke({ color: 0xb8972a, width: 1.5 });
-          }}
-        />
-        <pixiText
-          text={label}
-          anchor={0.5}
-          resolution={2}
-          style={{
-            fontFamily: "monospace",
-            fontSize: 18,
-            fill: 0xfde7b0,
-            fontWeight: "bold",
-          }}
-        />
-      </pixiContainer>
-      {/* Sims-style plumbob — only renders when this avatar is being driven.
-          Anchored further above the head than the name pill so it sits
-          comfortably above the label without overlapping. */}
-      {isControlled && (
-        <Plumbob y={-(size * (1 - topPaddingRatio) + 70)} />
-      )}
+      {/* Plumbob foi pra PlumbobOverlay no fim do JSX. */}
 
       {/* Speech bubble — shows the user's terminal prompt as Pedro talking.
           maxChars=300 overrides the default 60-char truncation que boss e
@@ -802,9 +903,167 @@ function UserAvatar({
 }
 
 // ============================================================================
+// LOBBY AGENT — NPC silver chibi estacionário que popula o lobby.
+// Anima a respiração (4 idle frames) mas não anda nem interage.
+// ============================================================================
+
+interface LobbyAgentProps {
+  label: string;
+  position: { x: number; y: number };
+  idleFrames: (Texture | null)[];
+  fallbackTexture: Texture | null;
+  size?: number;
+  topPaddingRatio?: number;
+  phase?: number;
+  idleFrameDurationMs?: number;
+}
+
+function LobbyAgent({
+  label,
+  position,
+  idleFrames,
+  fallbackTexture,
+  size = 200,
+  topPaddingRatio = 60 / 248,
+  phase = 0,
+  idleFrameDurationMs = 600,
+}: LobbyAgentProps): ReactNode {
+  const [idleFrameIdx, setIdleFrameIdx] = useState(phase);
+  useTick((ticker) => {
+    setIdleFrameIdx((idx) => idx + ticker.deltaMS / idleFrameDurationMs);
+  });
+  const frames = idleFrames.filter((f): f is Texture => f != null);
+  const tex =
+    frames.length > 0
+      ? frames[Math.floor(idleFrameIdx) % frames.length]
+      : fallbackTexture;
+  if (!tex) return null;
+  return (
+    <pixiContainer x={position.x} y={position.y} zIndex={position.y}>
+      <ContactShadow width={70} y={-58} alpha={0.245} />
+      <pixiSprite
+        texture={tex}
+        anchor={{ x: 0.5, y: 1 }}
+        x={0}
+        y={0}
+        width={size}
+        height={size}
+      />
+      <pixiContainer y={-(size * (1 - topPaddingRatio) + 8)}>
+        <pixiGraphics
+          draw={(g) => {
+            const pillW = Math.max(56, label.length * 10 + 18);
+            const pillH = 20;
+            g.clear();
+            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 6);
+            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+            g.stroke({ color: 0xb8972a, width: 1.5 });
+          }}
+        />
+        <pixiText
+          text={label}
+          anchor={0.5}
+          resolution={2}
+          style={{
+            fontFamily: "monospace",
+            fontSize: 15,
+            fill: 0xfde7b0,
+            fontWeight: "bold",
+          }}
+        />
+      </pixiContainer>
+    </pixiContainer>
+  );
+}
+
+const LOBBY_AGENTS: Array<{
+  id: string;
+  label: string;
+  position: { x: number; y: number };
+  phase: number;
+}> = [
+  { id: "lobby-agent-1", label: "Agente 1", position: { x: 240, y: 800 }, phase: 0.0 },
+  { id: "lobby-agent-2", label: "Agente 2", position: { x: 400, y: 870 }, phase: 1.1 },
+  { id: "lobby-agent-3", label: "Agente 3", position: { x: 560, y: 800 }, phase: 2.3 },
+  { id: "lobby-agent-4", label: "Agente 4", position: { x: 960, y: 820 }, phase: 0.7 },
+  { id: "lobby-agent-5", label: "Agente 5", position: { x: 1210, y: 870 }, phase: 1.8 },
+];
+
+// ============================================================================
 // PEDRO BUBBLE LAYER — desenha o balão do Pedro numa camada top-level pra
 // garantir que fica acima de qualquer personagem que passe na frente.
 // ============================================================================
+
+// Configuração dos UserAvatars pra layer de labels top-level. Quando um
+// avatar é adicionado, registrá-lo aqui pra a badge sempre aparecer por cima.
+const USER_AVATAR_LABEL_CONFIGS: Array<{
+  id: string;
+  label: string;
+  size: number;
+  topPaddingRatio: number;
+}> = [
+  { id: "gestor-trafego", label: "Tráfego", size: 256, topPaddingRatio: 58 / 248 },
+  { id: "suporte-comercial", label: "Comercial", size: 256, topPaddingRatio: 58 / 248 },
+  { id: "pedro-samurai", label: "Pedro", size: 282, topPaddingRatio: 58 / 248 },
+];
+
+/**
+ * Renderiza a badge (pílula com nome) de cada UserAvatar numa camada
+ * top-level — garante que NUNCA é coberta por móvel, mesa, decoração de
+ * parede etc. Posição é calculada por avatar: se está parado perto de uma
+ * cadeira, ancora no deskTop; senão usa a posição corrente + topPadding.
+ */
+function UserAvatarLabelsLayer(): ReactNode {
+  const positions = useGameStore((s) => s.userAvatarPositions);
+  return (
+    <>
+      {USER_AVATAR_LABEL_CONFIGS.map((cfg) => {
+        const pos = positions.get(cfg.id);
+        if (!pos) return null;
+        const chair = findNearestChair(pos, 30);
+        let labelX: number;
+        let labelY: number;
+        if (chair) {
+          // 8px acima do topo real do crânio sentado (sprite é cropped pra
+          // SEATED_CROP_RATIO da altura original — o crânio fica mais
+          // próximo do desk do que na versão em pé).
+          labelX = chair.x;
+          labelY =
+            chair.deskTopY -
+            (cfg.size * SEATED_CROP_RATIO * (1 - cfg.topPaddingRatio) + 8);
+        } else {
+          labelX = pos.x;
+          labelY = pos.y - (cfg.size * (1 - cfg.topPaddingRatio) + 8);
+        }
+        const pillW = Math.max(56, cfg.label.length * 11 + 20);
+        const pillH = 22;
+        return (
+          <pixiContainer key={cfg.id} x={labelX} y={labelY}>
+            <pixiGraphics
+              draw={(g) => {
+                g.clear();
+                g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 7);
+                g.fill({ color: 0x0e0e0e, alpha: 0.9 });
+                g.stroke({ color: 0xb8972a, width: 1.5 });
+              }}
+            />
+            <pixiText
+              text={cfg.label}
+              anchor={0.5}
+              resolution={2}
+              style={{
+                fontFamily: "monospace",
+                fontSize: 18,
+                fill: 0xfde7b0,
+                fontWeight: "bold",
+              }}
+            />
+          </pixiContainer>
+        );
+      })}
+    </>
+  );
+}
 
 function PedroBubbleLayer(): ReactNode {
   const position = useGameStore((s) => s.userAvatarPositions.get("pedro"));
@@ -869,6 +1128,8 @@ export function OfficeGame(): ReactNode {
     const path = calculatePath(cur, target, id);
     if (path.length === 0) return;
 
+    // Levanta da cadeira se estava sentado (mover pra outro lugar = sair).
+    if (store.entitySeats.has(id)) store.setEntitySeated(id, null);
     store.setClickToMoveTarget({
       entityId: id,
       path,
@@ -876,6 +1137,108 @@ export function OfficeGame(): ReactNode {
       targetTile: { gx, gy },
     });
   }, []);
+
+  // Modal de confirmação pra sentar — evita sentar acidental quando o
+  // usuário só clicou pra mexer perto da mesa. Pedro 2026-06-06.
+  const [sitConfirmDesk, setSitConfirmDesk] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Click na mesa/cadeira → mostra modal "Sentar?" pro personagem controlado.
+  // Se ninguém estiver controlado mas o Pedro existir no painel, assume Pedro
+  // automaticamente — antes o click era ignorado e dava impressão de bug
+  // (Pedro 2026-06-06).
+  const handleDeskTap = useCallback((desk: { x: number; y: number }) => {
+    const store = useGameStore.getState();
+    if (!store.controlledEntityId) {
+      if (store.userAvatarPositions.has("pedro")) {
+        store.setControlledEntity("pedro");
+      } else {
+        return;
+      }
+    }
+    setSitConfirmDesk({ x: desk.x, y: desk.y });
+  }, []);
+
+  // Click na mesa do Claudius quando ele está em pé → abre modal "Sentar Claudius?".
+  const [sitConfirmBoss, setSitConfirmBoss] = useState(false);
+  const handleBossDeskTap = useCallback(() => {
+    const store = useGameStore.getState();
+    if (store.entitySeats.has("boss")) return; // já sentado
+    setSitConfirmBoss(true);
+  }, []);
+  const confirmSitBoss = useCallback(() => {
+    setSitConfirmBoss(false);
+    const store = useGameStore.getState();
+    store.setEntitySeated("boss", {
+      x: 640,
+      y: 900,
+      deskTopY: 930,
+    });
+    store.setBossPosition({ x: 640, y: 900 });
+  }, []);
+
+  // Confirma → calcula path A* até a cadeira correspondente e dispara
+  // click-to-move. A cadeira fica em y=desk.y+12 (ver chairs.ts).
+  const confirmSit = useCallback(() => {
+    const desk = sitConfirmDesk;
+    if (!desk) return;
+    setSitConfirmDesk(null);
+    const store = useGameStore.getState();
+    const id = store.controlledEntityId;
+    if (!id) return;
+    const chair = findNearestChair({ x: desk.x, y: desk.y + 12 }, 60);
+    if (!chair) return;
+    let cur: { x: number; y: number } | null = null;
+    if (id === "boss") cur = store.boss.position;
+    else if (store.userAvatarPositions.has(id))
+      cur = store.userAvatarPositions.get(id) ?? null;
+    else if (store.agents.has(id))
+      cur = store.agents.get(id)?.currentPosition ?? null;
+    if (!cur) return;
+    // Atalho: se o personagem já está num raio de 4 SQM (= 128px) da
+    // cadeira, senta DIRETO sem path. Pedro 2026-06-06.
+    const distToChair = Math.hypot(cur.x - chair.x, cur.y - chair.y);
+    if (distToChair <= TILE_SIZE * 4) {
+      const chairSeat = {
+        x: chair.x,
+        y: chair.y,
+        deskTopY: chair.deskTopY,
+      };
+      if (id === "boss") store.setBossPosition({ x: chair.x, y: chair.y });
+      else if (store.userAvatarPositions.has(id))
+        store.setUserAvatarPosition(id, { x: chair.x, y: chair.y });
+      else if (store.agents.has(id)) {
+        store.updateAgentPosition(id, { x: chair.x, y: chair.y });
+        store.updateAgentTarget(id, { x: chair.x, y: chair.y });
+      }
+      store.setEntitySeated(id, chairSeat);
+      return;
+    }
+    const path = calculatePath(cur, { x: chair.x, y: chair.y }, id);
+    if (path.length === 0) {
+      store.setPathErrorMessage("Sem caminho possível");
+      return;
+    }
+    // Se já estava sentado em outra cadeira, levanta antes de andar pra
+    // nova. setEntitySeated(id, novaChair) acontece no fim do path.
+    if (store.entitySeats.has(id)) store.setEntitySeated(id, null);
+    store.setClickToMoveTarget({
+      entityId: id,
+      path,
+      pathIdx: 0,
+      targetTile: {
+        gx: Math.floor(chair.x / TILE_SIZE),
+        gy: Math.floor(chair.y / TILE_SIZE),
+      },
+      sittingTargetChair: {
+        x: chair.x,
+        y: chair.y,
+        deskTopY: chair.deskTopY,
+      },
+    });
+  }, [sitConfirmDesk]);
 
   // HMR version for forcing remount
   const hmrVersion = getHmrVersion();
@@ -907,6 +1270,10 @@ export function OfficeGame(): ReactNode {
     claudeGoldBackStep1: claudeGoldBackStep1Texture,
     claudeGoldBackStep2: claudeGoldBackStep2Texture,
     claudeGoldIdleFrames,
+    claudeGoldSEIdle: claudeGoldSEIdleTexture,
+    claudeGoldSWIdle: claudeGoldSWIdleTexture,
+    claudeGoldNEIdle: claudeGoldNEIdleTexture,
+    claudeGoldNWIdle: claudeGoldNWIdleTexture,
     aiSilverIdle: aiSilverIdleTexture,
     aiSilverStepLeft: aiSilverStepLeftTexture,
     aiSilverStepRight: aiSilverStepRightTexture,
@@ -1164,6 +1531,29 @@ export function OfficeGame(): ReactNode {
   // Desk positions for Y-sorted rendering
   const deskPositions = useDeskPositions(deskCount, occupiedDesks);
 
+  // Split da textura da mesa em "top fatia" (só o tampo) + "bottom"
+  // (resto). Pedro 2026-06-06: top em 50% deixava o tampo grande demais
+  // e cobria a cabeça do personagem quando ele andava bem atrás. Reduzido
+  // pra 25% top + 75% bottom — só o tampo cobre o tronco; cabeça aparece
+  // acima.
+  const DESK_TOP_SPLIT_RATIO = 0.5;
+  const deskTextureSplit = useMemo(() => {
+    const src = textures.desk?.source;
+    if (!src) return null;
+    const w = src.width;
+    const h = src.height;
+    const topH = Math.floor(h * DESK_TOP_SPLIT_RATIO);
+    const top = new Texture({
+      source: src,
+      frame: new Rectangle(0, 0, w, topH),
+    });
+    const bottom = new Texture({
+      source: src,
+      frame: new Rectangle(0, topH, w, h - topH),
+    });
+    return { top, bottom, topHeightCanvas: topH };
+  }, [textures.desk]);
+
   // Keyboard shortcuts for debug
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1303,7 +1693,7 @@ export function OfficeGame(): ReactNode {
                     x={EMPLOYEE_OF_MONTH_POSITION.x}
                     y={EMPLOYEE_OF_MONTH_POSITION.y}
                   >
-                    <WallCalendar />
+                    <WallCalendar frameTexture={textures.wallCalendarFrame} />
                   </pixiContainer>
                   <pixiContainer
                     x={CITY_WINDOW_POSITION.x}
@@ -1319,7 +1709,7 @@ export function OfficeGame(): ReactNode {
                       blurStrength={18}
                       blendMode="add"
                     />
-                    <CityWindow />
+                    <CityWindow frameTexture={textures.windowFrame} />
                   </pixiContainer>
                   {/* SafetySign desativada visualmente — componente, posição
                       e doc preservados. Pra reativar, importar SafetySign +
@@ -1328,27 +1718,10 @@ export function OfficeGame(): ReactNode {
                     x={WALL_CLOCK_POSITION.x}
                     y={WALL_CLOCK_POSITION.y}
                   >
-                    {/* Glow verde-elétrico do display digital. */}
-                    <LightGlow
-                      radiusX={70}
-                      radiusY={28}
-                      color={0x66ffaa}
-                      alpha={0.55}
-                      blurStrength={18}
-                      blendMode="add"
-                    />
                     <WallClock />
                   </pixiContainer>
-                  {/* Wall outlet below clock */}
-                  {textures.wallOutlet && (
-                    <pixiSprite
-                      texture={textures.wallOutlet}
-                      anchor={0.5}
-                      x={WALL_OUTLET_POSITION.x}
-                      y={WALL_OUTLET_POSITION.y}
-                      scale={0.04}
-                    />
-                  )}
+                  {/* Wall outlet removido em 2026-06-06 a pedido do Pedro
+                      (elemento órfão na parede sem função visual). */}
                   <pixiContainer
                     x={WHITEBOARD_POSITION.x}
                     y={WHITEBOARD_POSITION.y}
@@ -1362,7 +1735,7 @@ export function OfficeGame(): ReactNode {
                       blurStrength={26}
                       blendMode="add"
                     />
-                    <Whiteboard todos={todos} />
+                    <Whiteboard todos={todos} frameTexture={textures.whiteboardFrame} />
                   </pixiContainer>
                   {textures.waterCooler && (
                     <pixiContainer
@@ -1373,7 +1746,7 @@ export function OfficeGame(): ReactNode {
                       <pixiSprite
                         texture={textures.waterCooler}
                         anchor={0.5}
-                        scale={0.198}
+                        scale={0.158}
                       />
                     </pixiContainer>
                   )}
@@ -1403,6 +1776,7 @@ export function OfficeGame(): ReactNode {
                     deskTexture={textures.desk}
                     cornerTableTexture={textures.cornerTable}
                     printerTexture={textures.printer}
+                    printerStationTexture={textures.printerStation}
                   />
 
                   {/* Plant - to the right of printer */}
@@ -1420,16 +1794,49 @@ export function OfficeGame(): ReactNode {
                     </pixiContainer>
                   )}
 
-                  {/* Ambient radio (boombox on a small desk) — diagonal mirror of the printer */}
-                  <RadioSprite
-                    x={RADIO_POSITION.x}
-                    y={RADIO_POSITION.y}
-                    deskTexture={textures.desk}
-                    cornerTableTexture={textures.cornerTable}
-                    radioTexture={textures.radio}
-                  />
+                  {/* Som de parede ao lado da cafeteira — textura PNG (radio.png,
+                      o vintage FM que o Pedro escolheu). Prateleira fininha
+                      embaixo, na cor da mesa. Container scale=0.97 shrinka
+                      rádio + prateleira juntos sem mexer no scale do sprite
+                      (mantém scaleMode linear da textura preservando defin.) */}
+                  {textures.radio && (
+                    <pixiContainer
+                      x={FLOOR_RADIO_POSITION.x}
+                      y={FLOOR_RADIO_POSITION.y}
+                      scale={0.97}
+                      eventMode="static"
+                      cursor="pointer"
+                      onPointerTap={useRadioModalStore.getState().open}
+                    >
+                      <pixiGraphics
+                        draw={(g) => {
+                          g.clear();
+                          // Tom dominante da desk.png é #491a03 (mogno escuro).
+                          // Prateleira logo abaixo da base do rádio (y=0).
+                          const left = -68;
+                          const width = 136;
+                          // Front face (vertical visível)
+                          g.rect(left, 0, width, 5);
+                          g.fill({ color: 0x491a03 });
+                          // Top highlight (1px no topo - face superior da prateleira)
+                          g.rect(left, 0, width, 1);
+                          g.fill({ color: 0x6b2a0a });
+                          // Sombra fina embaixo
+                          g.rect(left, 5, width, 1);
+                          g.fill({ color: 0x2a0d02 });
+                        }}
+                      />
+                      <pixiSprite
+                        texture={textures.radio}
+                        anchor={{ x: 0.5, y: 1 }}
+                        scale={0.475}
+                      />
+                      <MusicNotesAura baseY={-100} />
+                    </pixiContainer>
+                  )}
 
-                  {/* Elevator with animated doors and agents inside */}
+                  {/* Elevator with animated doors and agents inside.
+                      onTap abre o ElevatorModal com a lista de andares. */}
                   <Elevator
                     isOpen={isElevatorOpen}
                     agents={agents}
@@ -1437,6 +1844,7 @@ export function OfficeGame(): ReactNode {
                     doorTexture={textures.elevatorDoor}
                     headsetTexture={null}
                     sunglassesTexture={null}
+                    onTap={useElevatorModalStore.getState().open}
                   />
 
                   {/* Floor sign above elevator */}
@@ -1452,15 +1860,21 @@ export function OfficeGame(): ReactNode {
                       2026-06-06) pra permitir personagem passar atrás dela
                       mas na frente da cadeira. */}
                   <pixiContainer sortableChildren={true}>
-                    {/* Desk chairs - zIndex based on chair seat back */}
+                    {/* Desk chairs - zIndex baixíssimo: cadeira fica SEMPRE
+                        atrás de qualquer personagem em pé. Personagem
+                        sentado cobre a cadeira via branch seated (renderiza
+                        com zIndex próprio = chair.deskTopY - 1). Pedro
+                        2026-06-06. */}
                     {deskPositions.map((desk, i) => {
-                      const chairZIndex = desk.y + 20;
                       return (
                         <pixiContainer
                           key={`chair-${i}`}
                           x={desk.x}
                           y={desk.y}
-                          zIndex={chairZIndex}
+                          zIndex={1}
+                          eventMode="static"
+                          cursor="pointer"
+                          onPointerTap={() => handleDeskTap(desk)}
                         >
                           {textures.chair && (
                             <pixiSprite
@@ -1475,29 +1889,56 @@ export function OfficeGame(): ReactNode {
                       );
                     })}
 
-                    {/* Mesas — zIndex = desk.y + 70 (entre cadeira em
-                        desk.y+20 e personagem em pé na frente). Personagem
-                        cujo pé.y < zIndex da mesa fica ATRÁS dela; pé.y >
-                        zIndex fica NA FRENTE. Sprite idêntico ao que vivia
-                        em DeskSurfacesBase. */}
-                    {deskPositions.map((desk, i) => (
-                      <pixiContainer
-                        key={`desk-${i}`}
-                        x={desk.x}
-                        y={desk.y}
-                        zIndex={desk.y + 70}
-                      >
-                        {textures.desk && (
-                          <pixiSprite
-                            texture={textures.desk}
-                            anchor={{ x: 0.5, y: 0 }}
-                            x={-25}
-                            y={-5}
-                            scale={0.21}
-                          />
-                        )}
-                      </pixiContainer>
-                    ))}
+                    {/* Mesas split em 2 sprites — Pedro 2026-06-06:
+                        - top half (zIndex 999999): metade superior sempre
+                          na FRENTE do personagem (tampo cobre tronco)
+                        - bottom half (Y-sort na BASE da mesa): pernas cobrem
+                          personagens atrás da mesa, mas personagens na frente
+                          (pé.zIndex > base.zIndex) ficam na frente das pernas. */}
+                    {deskTextureSplit &&
+                      deskPositions.map((desk, i) => {
+                        const topVisual =
+                          deskTextureSplit.topHeightCanvas * 0.21;
+                        // Linha de Y-sort do bottom puxada bem pra baixo
+                        // (cobrindo o fundo do sprite). Personagens em pé
+                        // na frente da mesa só ficam à frente se o pé
+                        // VISUAL passa BEM além da base da mesa. Pedro
+                        // 2026-06-06.
+                        const baseZ = desk.y + topVisual + 60;
+                        return (
+                          <Fragment key={`desk-${i}`}>
+                            <pixiContainer
+                              x={desk.x}
+                              y={desk.y}
+                              zIndex={baseZ}
+                            >
+                              <pixiSprite
+                                texture={deskTextureSplit.bottom}
+                                anchor={{ x: 0.5, y: 0 }}
+                                x={-25}
+                                y={-5 + topVisual}
+                                scale={0.21}
+                              />
+                            </pixiContainer>
+                            <pixiContainer
+                              x={desk.x}
+                              y={desk.y}
+                              zIndex={999999}
+                              eventMode="static"
+                              cursor="pointer"
+                              onPointerTap={() => handleDeskTap(desk)}
+                            >
+                              <pixiSprite
+                                texture={deskTextureSplit.top}
+                                anchor={{ x: 0.5, y: 0 }}
+                                x={-25}
+                                y={-5}
+                                scale={0.21}
+                              />
+                            </pixiContainer>
+                          </Fragment>
+                        );
+                      })}
 
                     {/* Agents outside elevator - zIndex based on feet Y position */}
                     {Array.from(agents.values())
@@ -1511,7 +1952,10 @@ export function OfficeGame(): ReactNode {
                       .map((agent) => (
                         <pixiContainer
                           key={agent.id}
-                          zIndex={agent.currentPosition.y}
+                          zIndex={
+                            agent.currentPosition.y +
+                            getCharacterFootOffsetY(agent.id)
+                          }
                         >
                           <AgentSprite
                             id={agent.id}
@@ -1543,11 +1987,181 @@ export function OfficeGame(): ReactNode {
                           />
                         </pixiContainer>
                       ))}
+
+                    {/* WanderingBoss — Claudius andando. Y-sort com mesas
+                        (mesa zIndex=999999 sempre cobre). */}
+                    {(() => {
+                      const bdx = boss.position.x - BOSS_POSITION.x;
+                      const bdy = boss.position.y - BOSS_POSITION.y;
+                      const isAtDesk = Math.hypot(bdx, bdy) < 25;
+                      if (isAtDesk || compactionAnimation.phase !== "idle")
+                        return null;
+                      return (
+                        <WanderingBoss
+                          position={boss.position}
+                          tint={0xffffff}
+                          textures={{
+                            idle: claudeGoldIdleTexture ?? chromeDummyTexture,
+                            stepLeft: claudeGoldStepLeftTexture ?? chromeDummyStepLeftTexture,
+                            stepRight: claudeGoldStepRightTexture ?? chromeDummyStepRightTexture,
+                            sideIdle: claudeGoldSideIdleTexture ?? chromeDummySideIdleTexture,
+                            sideStep1: claudeGoldSideStep1Texture ?? chromeDummySideStep1Texture,
+                            sideStep2: claudeGoldSideStep2Texture ?? chromeDummySideStep2Texture,
+                            backIdle: claudeGoldBackIdleTexture ?? chromeDummyBackIdleTexture,
+                            backStep1: claudeGoldBackStep1Texture ?? chromeDummyBackStep1Texture,
+                            backStep2: claudeGoldBackStep2Texture ?? chromeDummyBackStep2Texture,
+                            seIdle: claudeGoldSEIdleTexture,
+                            swIdle: claudeGoldSWIdleTexture,
+                            neIdle: claudeGoldNEIdleTexture,
+                            nwIdle: claudeGoldNWIdleTexture,
+                          }}
+                          idleFrames={claudeGoldIdleFrames}
+                        />
+                      );
+                    })()}
+
+                    {/* UserAvatars (gestor/samurai) — cada um tem
+                        zIndex={position.y} interno; entram no Y-sort.
+                        PEDRO original removido em 2026-06-06 — substituído pelo
+                        pedro-samurai v10. */}
+                    {(floorId === LOBBY_FLOOR_ID || floorId === "comercial") && (
+                      <>
+                        <UserAvatar
+                          id="gestor-trafego"
+                          texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
+                          label="Tráfego"
+                          phase={1.7}
+                          waist={85}
+                          size={256}
+                          topPaddingRatio={58 / 248}
+                          directionalTextures={gestorIdleFrames}
+                          walkFrames={gestorWalkFrames}
+                          renderBubble={false}
+                          renderLabel={false}
+                          idleFrameDurationMs={600}
+                          withShadow
+                        />
+                        {/* Suporte Comercial — mesmo sprite do gestor, ID
+                            separado pra ter posição/estado próprios. */}
+                        <UserAvatar
+                          id="suporte-comercial"
+                          texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
+                          label="Comercial"
+                          phase={2.3}
+                          waist={85}
+                          size={256}
+                          topPaddingRatio={58 / 248}
+                          directionalTextures={gestorIdleFrames}
+                          walkFrames={gestorWalkFrames}
+                          renderBubble={false}
+                          renderLabel={false}
+                          idleFrameDurationMs={650}
+                          withShadow
+                        />
+                        {LOBBY_AGENTS.map((npc) => (
+                          <LobbyAgent
+                            key={npc.id}
+                            label={npc.label}
+                            position={npc.position}
+                            phase={npc.phase}
+                            idleFrames={aiSilverIdleFrames}
+                            fallbackTexture={
+                              aiSilverIdleTexture ?? chromeDummyTexture
+                            }
+                          />
+                        ))}
+                      </>
+                    )}
+                    <UserAvatar
+                      id="pedro-samurai"
+                      texture={samuraiIdleFrames.south?.[0] ?? userSuitTexture}
+                      label="Pedro"
+                      phase={2.9}
+                      waist={85}
+                      size={282}
+                      topPaddingRatio={58 / 248}
+                      directionalTextures={samuraiIdleFrames}
+                      walkFrames={samuraiWalkFrames}
+                      renderBubble={false}
+                      renderLabel={false}
+                      idleFrameDurationMs={2700}
+                      withShadow
+                    />
+
+                    {/* Monitor + canecas/decorações das mesas — DENTRO do
+                        Y-sort com zIndex=desk.y+80 (mesmo da mesa). Personagens
+                        com foot.y maior passam na frente; menor, atrás.
+                        Pedro 2026-06-06. */}
+                    <DeskSurfacesTop
+                      deskCount={deskCount}
+                      occupiedDesks={occupiedDesks}
+                      deskTasks={deskTasks}
+                      monitorTexture={textures.monitor}
+                      coffeeMugTexture={textures.coffeeMug}
+                      staplerTexture={textures.stapler}
+                      deskLampTexture={textures.deskLamp}
+                      penHolderTexture={textures.penHolder}
+                      magic8BallTexture={textures.magic8Ball}
+                      rubiksCubeTexture={textures.rubiksCube}
+                      rubberDuckTexture={textures.rubberDuck}
+                      thermosTexture={textures.thermos}
+                      blueMugTexture={textures.blueMug}
+                      blackMugTexture={textures.blackMug}
+                    />
+
+                    {/* BossSprite (Claudius sentado) DENTRO do Y-sort. zIndex
+                        atrelado a BOSS_POSITION.y (fixed) — agents/avatars com
+                        foot.y maior cobrem; menor, são cobertos. */}
+                    <pixiContainer
+                      zIndex={BOSS_POSITION.y}
+                      eventMode="static"
+                      cursor="pointer"
+                      onPointerTap={handleBossDeskTap}
+                    >
+                      {(() => {
+                        const bdx = boss.position.x - BOSS_POSITION.x;
+                        const bdy = boss.position.y - BOSS_POSITION.y;
+                        const isAtDesk = Math.hypot(bdx, bdy) < 25;
+                        const isAway =
+                          !isAtDesk || compactionAnimation.phase !== "idle";
+                        return (
+                          <BossSprite
+                            position={BOSS_POSITION}
+                            state={boss.backendState}
+                            bubble={boss.bubble.content}
+                            inUseBy={boss.inUseBy}
+                            currentTask={boss.currentTask}
+                            chairTexture={textures.chairRed ?? textures.chair}
+                            deskTexture={textures.desk}
+                            keyboardTexture={textures.keyboard}
+                            monitorTexture={textures.monitor}
+                            phoneTexture={textures.phone}
+                            headsetTexture={null}
+                            sunglassesTexture={null}
+                            characterTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                            characterTypingTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                            characterTypingEyeLeftTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
+                            characterIdleFrames={claudeGoldIdleFrames}
+                            characterRenderSize={claudeGoldIdleTexture ? 240 : 128}
+                            renderBubble={false}
+                            isTyping={true /* TEMP DEBUG: forced typing pose */}
+                            isWorking={
+                              boss.backendState === "working" ||
+                              boss.backendState === "delegating" ||
+                              boss.backendState === "receiving"
+                            }
+                            isAway={isAway}
+                          />
+                        );
+                      })()}
+                    </pixiContainer>
                   </pixiContainer>
 
                   {/* Sombras das mesas (always-back) + teclado. Sprite da
                       mesa em si desligado aqui — vai pro container Y-sorted
-                      abaixo pra concorrer com personagem/cadeira por zIndex. */}
+                      abaixo pra concorrer com personagem/cadeira por zIndex.
+                      zIndex=1 pra ficar ATRÁS de tudo (sombras no chão). */}
+                  <pixiContainer zIndex={1}>
                   <DeskSurfacesBase
                     deskCount={deskCount}
                     occupiedDesks={occupiedDesks}
@@ -1555,6 +2169,7 @@ export function OfficeGame(): ReactNode {
                     keyboardTexture={textures.keyboard}
                     renderDeskSprite={false}
                   />
+                  </pixiContainer>
 
                   {/* Agent arms + headsets removed when using character sprite texture */}
 
@@ -1592,91 +2207,16 @@ export function OfficeGame(): ReactNode {
                   </pixiContainer>
                   )}
 
-                  {/* Monitors and decorations (in front of agent arms) */}
-                  <DeskSurfacesTop
-                    deskCount={deskCount}
-                    occupiedDesks={occupiedDesks}
-                    deskTasks={deskTasks}
-                    monitorTexture={textures.monitor}
-                    coffeeMugTexture={textures.coffeeMug}
-                    staplerTexture={textures.stapler}
-                    deskLampTexture={textures.deskLamp}
-                    penHolderTexture={textures.penHolder}
-                    magic8BallTexture={textures.magic8Ball}
-                    rubiksCubeTexture={textures.rubiksCube}
-                    rubberDuckTexture={textures.rubberDuck}
-                    thermosTexture={textures.thermos}
-                  />
+                  {/* DeskSurfacesTop foi movido pra DENTRO do Y-sort acima
+                      (com zIndex=desk.y+80) pra canecas/monitores Y-sortarem
+                      com personagens. Pedro 2026-06-06. */}
 
-                  {/* Boss — móveis SEMPRE fixos em BOSS_POSITION. Quando o
-                      boss.position se afasta da mesa (controle pelo usuário),
-                      escondemos o corpo seated (isAway=true) e renderizamos o
-                      WanderingBoss em boss.position. */}
-                  {(() => {
-                    const bdx = boss.position.x - BOSS_POSITION.x;
-                    const bdy = boss.position.y - BOSS_POSITION.y;
-                    const isAtDesk = Math.hypot(bdx, bdy) < 25;
-                    const isAway =
-                      !isAtDesk || compactionAnimation.phase !== "idle";
-                    return (
-                      <BossSprite
-                        position={BOSS_POSITION}
-                        state={boss.backendState}
-                        bubble={boss.bubble.content}
-                        inUseBy={boss.inUseBy}
-                        currentTask={boss.currentTask}
-                        chairTexture={textures.chair}
-                        deskTexture={textures.desk}
-                        keyboardTexture={textures.keyboard}
-                        monitorTexture={textures.monitor}
-                        phoneTexture={textures.phone}
-                        headsetTexture={null}
-                        sunglassesTexture={null}
-                        characterTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
-                        characterTypingTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
-                        characterTypingEyeLeftTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
-                        characterIdleFrames={claudeGoldIdleFrames}
-                        characterRenderSize={claudeGoldIdleTexture ? 240 : 128}
-                        renderBubble={false}
-                        isTyping={true /* TEMP DEBUG: forced typing pose */}
-                        isWorking={
-                          boss.backendState === "working" ||
-                          boss.backendState === "delegating" ||
-                          boss.backendState === "receiving"
-                        }
-                        isAway={isAway}
-                      />
-                    );
-                  })()}
-
-                  {/* Wandering boss — só quando o boss saiu da mesa */}
-                  {(() => {
-                    const bdx = boss.position.x - BOSS_POSITION.x;
-                    const bdy = boss.position.y - BOSS_POSITION.y;
-                    const isAtDesk = Math.hypot(bdx, bdy) < 25;
-                    if (isAtDesk || compactionAnimation.phase !== "idle")
-                      return null;
-                    return (
-                      <WanderingBoss
-                        position={boss.position}
-                        tint={0xffffff}
-                        textures={{
-                          idle: claudeGoldIdleTexture ?? chromeDummyTexture,
-                          stepLeft: claudeGoldStepLeftTexture ?? chromeDummyStepLeftTexture,
-                          stepRight: claudeGoldStepRightTexture ?? chromeDummyStepRightTexture,
-                          sideIdle: claudeGoldSideIdleTexture ?? chromeDummySideIdleTexture,
-                          sideStep1: claudeGoldSideStep1Texture ?? chromeDummySideStep1Texture,
-                          sideStep2: claudeGoldSideStep2Texture ?? chromeDummySideStep2Texture,
-                          backIdle: claudeGoldBackIdleTexture ?? chromeDummyBackIdleTexture,
-                          backStep1: claudeGoldBackStep1Texture ?? chromeDummyBackStep1Texture,
-                          backStep2: claudeGoldBackStep2Texture ?? chromeDummyBackStep2Texture,
-                        }}
-                        idleFrames={claudeGoldIdleFrames}
-                      />
-                    );
-                  })()}
+                  {/* BossSprite (seated) também foi MOVIDO pra dentro do
+                      sortable acima pra Y-sort com mesas/canecas/personagens
+                      (Pedro 2026-06-06). */}
 
                   {/* Mobile Boss (when walking to/from trash can) */}
+                  <pixiContainer zIndex={compactionAnimation.bossPosition?.y ?? 0}>
                   {compactionAnimation.bossPosition && (
                     <MobileBoss
                       position={compactionAnimation.bossPosition}
@@ -1686,9 +2226,11 @@ export function OfficeGame(): ReactNode {
                       headsetTexture={null}
                     />
                   )}
+                  </pixiContainer>
 
                   {/* Trash Can (Context Utilization Indicator) - fixed next
                       to boss desk; doesn't follow when boss walks away. */}
+                  <pixiContainer zIndex={BOSS_POSITION.y + TRASH_CAN_OFFSET.y}>
                   <TrashCanSprite
                     x={BOSS_POSITION.x + TRASH_CAN_OFFSET.x}
                     y={BOSS_POSITION.y + TRASH_CAN_OFFSET.y}
@@ -1699,61 +2241,12 @@ export function OfficeGame(): ReactNode {
                     }
                     isCompacting={isCompacting}
                     isStomping={compactionAnimation.isStomping}
+                    texture={textures.trashCan}
                   />
+                  </pixiContainer>
 
-
-                  {/* Pedro — suit + beard variant. 8-direction rotations from
-                      /sprites/characters/PEDRO/rotations/ swap on movement.
-                      topPaddingRatio = 58/228 (source sprite has 58px of empty
-                      space above the head in a 228px-tall canvas). */}
-                  <UserAvatar
-                    id="pedro"
-                    texture={userSuitTexture}
-                    label="Pedro"
-                    phase={3.4}
-                    waist={85}
-                    size={256}
-                    topPaddingRatio={58 / 228}
-                    directionalTextures={pedroIdleFrames}
-                    walkFrames={pedroWalkFrames}
-                    renderBubble={false}
-                    withShadow
-                  />
-                  {/* Gestor de Trafego — chibi NPC slim com fones no pescoço.
-                      8-direction rotations + walk + idle, mesmo padrão do Pedro.
-                      Só aparece no Lobby. Source PixelLab id: 80ad319a... */}
-                  {floorId === LOBBY_FLOOR_ID && (
-                    <UserAvatar
-                      id="gestor-trafego"
-                      texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
-                      label="Gestor de Tráfego"
-                      phase={1.7}
-                      waist={85}
-                      size={256}
-                      topPaddingRatio={58 / 248}
-                      directionalTextures={gestorIdleFrames}
-                      walkFrames={gestorWalkFrames}
-                      renderBubble={false}
-                      idleFrameDurationMs={600}
-                      withShadow
-                    />
-                  )}
-                  {/* Pedro Samurai v5 — variant do gestor forte (a667b3e8):
-                      terno azul navy, camisa branca, coque preto, barba preta,
-                      sem óculos. PixelLab: 1f1e749a. Aparece em todas floors. */}
-                  <UserAvatar
-                    id="pedro-samurai"
-                    texture={samuraiIdleFrames.south?.[0] ?? userSuitTexture}
-                    label="Pedro"
-                    phase={2.9}
-                    waist={85}
-                    size={333}
-                    topPaddingRatio={58 / 248}
-                    directionalTextures={samuraiIdleFrames}
-                    walkFrames={samuraiWalkFrames}
-                    renderBubble={false}
-                    idleFrameDurationMs={2700}
-                  />
+                  {/* UserAvatars (Pedro/gestor/samurai) foram MOVIDOS pra
+                      dentro do sortable acima pra Y-sort com mesas. */}
                   {/* Estagiário and Chrome Dummy hidden por hora — uncomment
                       to bring them back into the office. */}
                   {/*
@@ -1927,6 +2420,9 @@ export function OfficeGame(): ReactNode {
                   {/* Balão do Pedro (user avatar) — top-level pra ficar sempre
                       acima de qualquer personagem que passe na frente. */}
                   <PedroBubbleLayer />
+                  {/* Labels dos UserAvatars (Pedro/Gestor/Samurai) — top-level
+                      pra NUNCA serem cobertas por móvel/parede/decoração. */}
+                  <UserAvatarLabelsLayer />
 
                   {/* Floating tool icons — rise + fade above each character. */}
                   {floatingIcons.map((f) => (
@@ -1953,12 +2449,121 @@ export function OfficeGame(): ReactNode {
                       }}
                     />
                   )}
+                  {/* Plumbob overlay — sempre na FRENTE de tudo (depois de
+                      qualquer mesa/sprite no JSX). Segue a posição do
+                      personagem controlado. Pedro 2026-06-06. */}
+                  <PlumbobOverlay />
                 </>
               )}
             </Application>
           </div>
         </TransformComponent>
       </TransformWrapper>
+
+      <PathErrorToast />
+
+      {/* Modal "Sentar Claudius?" — abre ao clicar na mesa do boss quando
+          ele tá em pé. */}
+      {sitConfirmBoss && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0, 0, 0, 0.55)" }}
+          onClick={() => setSitConfirmBoss(false)}
+        >
+          <div
+            className="flex flex-col items-center gap-4 rounded-lg border px-6 py-5 shadow-xl"
+            style={{
+              background: "#0e0e0e",
+              borderColor: "#B8972A",
+              color: "#fde7b0",
+              fontFamily: "Montserrat, sans-serif",
+              minWidth: 240,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-base font-semibold tracking-wide">
+              Sentar Claudius?
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmSitBoss}
+                className="rounded border px-4 py-1.5 text-sm font-semibold transition-colors"
+                style={{
+                  background: "#B8972A",
+                  borderColor: "#B8972A",
+                  color: "#0e0e0e",
+                }}
+              >
+                Sentar
+              </button>
+              <button
+                type="button"
+                onClick={() => setSitConfirmBoss(false)}
+                className="rounded border px-4 py-1.5 text-sm transition-colors"
+                style={{
+                  background: "transparent",
+                  borderColor: "#B8972A",
+                  color: "#fde7b0",
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação "Sentar?" — abre ao clicar na cadeira/mesa. */}
+      {sitConfirmDesk && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0, 0, 0, 0.55)" }}
+          onClick={() => setSitConfirmDesk(null)}
+        >
+          <div
+            className="flex flex-col items-center gap-4 rounded-lg border px-6 py-5 shadow-xl"
+            style={{
+              background: "#0e0e0e",
+              borderColor: "#B8972A",
+              color: "#fde7b0",
+              fontFamily: "Montserrat, sans-serif",
+              minWidth: 240,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-base font-semibold tracking-wide">
+              Sentar nesta cadeira?
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmSit}
+                className="rounded border px-4 py-1.5 text-sm font-semibold transition-colors"
+                style={{
+                  background: "#B8972A",
+                  borderColor: "#B8972A",
+                  color: "#0e0e0e",
+                }}
+              >
+                Sentar
+              </button>
+              <button
+                type="button"
+                onClick={() => setSitConfirmDesk(null)}
+                className="rounded border px-4 py-1.5 text-sm transition-colors"
+                style={{
+                  background: "transparent",
+                  borderColor: "#B8972A",
+                  color: "#fde7b0",
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Collision editor controls — visible only while the editor is active */}
       {collisionEditorActive && (
@@ -1979,6 +2584,8 @@ export function OfficeGame(): ReactNode {
             [
               { id: "wall" as const, label: "Parede", swatch: "#ff3030" },
               { id: "floor" as const, label: "Chão", swatch: "#30ff60" },
+              { id: "above" as const, label: "Sobre", swatch: "#3080ff" },
+              { id: "below" as const, label: "Atrás", swatch: "#c040ff" },
               { id: "erase" as const, label: "Borracha", swatch: "#ffd84a" },
             ]
           ).map((mode) => {
@@ -2000,7 +2607,11 @@ export function OfficeGame(): ReactNode {
                     ? "Pintar tiles como WALL (bloqueado)"
                     : mode.id === "floor"
                       ? "Pintar tiles como FLOOR (andável, sobrepõe mesas)"
-                      : "Apagar override (volta ao padrão)"
+                      : mode.id === "above"
+                        ? "Sprite de cenário SEMPRE NA FRENTE do personagem"
+                        : mode.id === "below"
+                          ? "Sprite de cenário SEMPRE ATRÁS do personagem"
+                          : "Apagar override (volta ao padrão)"
                 }
               >
                 <span
@@ -2016,6 +2627,68 @@ export function OfficeGame(): ReactNode {
           <span className="opacity-80">overrides: {overrideCount}</span>
           <span className="opacity-50">|</span>
           <span className="opacity-70 italic">salvo auto · Ctrl+Z desfaz</span>
+          <button
+            type="button"
+            onClick={() => {
+              // Aplica WALL no tampo das 8 mesas + boss desk de forma
+              // automática. Pinta uma faixa fina (2 tiles de largura, 1
+              // de altura) no centro de cada tampo — corredor e cadeira
+              // continuam walkable. Pedro 2026-06-06.
+              const grid = getNavigationGrid();
+              const TS = 32;
+              const deskCenters = [256, 512, 768, 1024];
+              const deskRowYs = [388, 580];
+              const bossDeskCenterX = 640;
+              const bossDeskCenterY = 900;
+              grid.beginStroke();
+              for (const cx of deskCenters) {
+                for (const cy of deskRowYs) {
+                  // 2 tiles x 1 tile no tampo visual da mesa
+                  const gx0 = Math.floor((cx - 32) / TS);
+                  const gx1 = Math.floor((cx + 32) / TS);
+                  const gy = Math.floor((cy + 5) / TS);
+                  grid.setOverride(gx0, gy, TileType.WALL);
+                  grid.setOverride(gx1, gy, TileType.WALL);
+                }
+              }
+              // Boss desk — tampo mais largo (3 tiles)
+              {
+                const cx = bossDeskCenterX;
+                const cy = bossDeskCenterY;
+                const gx0 = Math.floor((cx - 32) / TS);
+                const gx1 = Math.floor(cx / TS);
+                const gx2 = Math.floor((cx + 32) / TS);
+                const gy = Math.floor((cy + 5) / TS);
+                grid.setOverride(gx0, gy, TileType.WALL);
+                grid.setOverride(gx1, gy, TileType.WALL);
+                grid.setOverride(gx2, gy, TileType.WALL);
+              }
+              // Salva no Supabase via batch (mesmo caminho do paint manual).
+              const changes = grid.endStroke();
+              const tiles: Array<{
+                gx: number;
+                gy: number;
+                tile_type: string;
+              }> = [];
+              for (const [key, type] of changes) {
+                if (type === null) continue;
+                const [gx, gy] = key.split(",").map(Number);
+                tiles.push({ gx, gy, tile_type: "wall" });
+              }
+              if (tiles.length > 0) {
+                fetch(`/api/v1/collision/${floorId}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ tiles }),
+                }).catch(() => undefined);
+              }
+            }}
+            className="rounded border px-2 py-0.5 transition-colors hover:bg-[#B8972A] hover:text-black"
+            style={{ borderColor: "#B8972A" }}
+            title="Pinta WALL automaticamente no tampo das 8 mesas + boss desk — corredor e cadeira ficam walkable"
+          >
+            Colisão padrão mesas
+          </button>
           <button
             type="button"
             onClick={() => {

@@ -1,8 +1,14 @@
 "use client";
 
-import { Graphics } from "pixi.js";
+import { Graphics, type Texture } from "pixi.js";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useCalendarModalStore } from "@/stores/calendarModalStore";
+
+// Dimensões alvo. Procedural usa 120x155 (aspect 0.77). Sprite tem aspect 0.706,
+// então com width=120 a altura natural fica 170 (15px mais alto).
+const FRAME_WIDTH = 120;
+const FRAME_HEIGHT_PROCEDURAL = 155;
+const FRAME_HEIGHT_SPRITE = 170;
 
 /**
  * WallCalendar — poster de parede no estilo "page-a-day", drop-in pro
@@ -36,8 +42,16 @@ const WEEKDAYS_PT = [
   "SÁBADO",
 ];
 
-export function WallCalendar(): ReactNode {
+interface WallCalendarProps {
+  /** Quando presente, substitui a moldura procedural. Texto continua sendo
+   *  desenhado por código, mas posicionado pras placas do sprite. */
+  frameTexture?: Texture | null;
+}
+
+export function WallCalendar({ frameTexture }: WallCalendarProps = {}): ReactNode {
   const open = useCalendarModalStore((s) => s.open);
+  const useSprite = !!frameTexture;
+  const height = useSprite ? FRAME_HEIGHT_SPRITE : FRAME_HEIGHT_PROCEDURAL;
   // Recompõe a cada minuto pra virar o dia sem reload.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -168,21 +182,40 @@ export function WallCalendar(): ReactNode {
     g.stroke({ width: 2, color: 0xffd700 });
   }, []);
 
-  // Overlay invisível cobrindo o poster inteiro (120x155). Usa alpha 0.001
-  // em vez de 0 — alpha 0 não conta como hit no PIXI v8, mas alpha mínimo
-  // sim. Renderizado por último pra ficar no topo da hit pile.
+  // Overlay invisível cobrindo o poster inteiro. Usa alpha 0.001 em vez de 0
+  // — alpha 0 não conta como hit no PIXI v8, mas alpha mínimo sim.
   const drawHitArea = useCallback((g: Graphics) => {
     g.clear();
-    g.rect(0, 0, 120, 155);
+    g.rect(0, 0, FRAME_WIDTH, height);
     g.fill({ color: 0x000000, alpha: 0.001 });
-  }, []);
+  }, [height]);
+
+  // Posições Y dos textos. Procedural (120x155): mantidas como antes.
+  // Sprite (120x170): recalibradas pras placas do PNG novo —
+  //   placa superior centro ≈y=27, painel preto centro ≈y=94,
+  //   placa inferior centro ≈y=154.
+  const yMonth = useSprite ? 20 : 14;
+  const yYear = useSprite ? 31 : 34;
+  const yDay = useSprite ? 84 : 88;
+  const yWeekday = useSprite ? 115 : 122;
+  const yAgenda = useSprite ? 144 : 144;
 
   return (
     <pixiContainer eventMode="static" cursor="pointer" onPointerDown={open}>
-      <pixiGraphics draw={drawFrame} />
+      {useSprite ? (
+        <pixiSprite
+          texture={frameTexture!}
+          x={0}
+          y={0}
+          width={FRAME_WIDTH}
+          height={FRAME_HEIGHT_SPRITE}
+        />
+      ) : (
+        <pixiGraphics draw={drawFrame} />
+      )}
 
       {/* Header — mês + ano */}
-      <pixiContainer x={60} y={14} scale={0.5}>
+      <pixiContainer x={60} y={yMonth} scale={0.5}>
         <pixiText
           text={month}
           anchor={0.5}
@@ -202,7 +235,7 @@ export function WallCalendar(): ReactNode {
           resolution={2}
         />
       </pixiContainer>
-      <pixiContainer x={60} y={26} scale={0.5}>
+      <pixiContainer x={60} y={yYear} scale={0.5}>
         <pixiText
           text={String(year)}
           anchor={0.5}
@@ -217,7 +250,7 @@ export function WallCalendar(): ReactNode {
       </pixiContainer>
 
       {/* Dia gigante no centro da "página" */}
-      <pixiContainer x={60} y={88} scale={0.5}>
+      <pixiContainer x={60} y={yDay} scale={0.5}>
         <pixiText
           text={String(day).padStart(2, "0")}
           anchor={0.5}
@@ -240,13 +273,13 @@ export function WallCalendar(): ReactNode {
       </pixiContainer>
 
       {/* Dia da semana abaixo do número */}
-      <pixiContainer x={60} y={122} scale={0.5}>
+      <pixiContainer x={60} y={yWeekday} scale={0.5}>
         <pixiText
           text={weekday}
           anchor={0.5}
           style={{
             fontFamily: '"Arial Black", Arial, sans-serif',
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: "bold",
             fill: "#daa520",
           }}
@@ -255,7 +288,7 @@ export function WallCalendar(): ReactNode {
       </pixiContainer>
 
       {/* Name plate — equivalente ao "CLAUDINHO" do poster original */}
-      <pixiContainer x={60} y={144} scale={0.5}>
+      <pixiContainer x={60} y={yAgenda} scale={0.5}>
         <pixiText
           text="AGENDA"
           anchor={0.5}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Graphics, Container } from "pixi.js";
+import { Graphics, Container, Texture } from "pixi.js";
 import {
   useState,
   useCallback,
@@ -29,6 +29,9 @@ import {
   drawSunAndClouds,
   drawWindowDividers,
 } from "./city/skyRenderer";
+// Aspect 1.006 do sprite v2 (janela quase quadrada, 4 painéis simétricos).
+// Width 200 mantido; height vira ~199px.
+const FRAME_ASPECT = 1.006;
 import {
   drawBuildings,
   DEFAULT_BUILDINGS,
@@ -40,7 +43,7 @@ import {
 // ============================================================================
 
 const FRAME_WIDTH = 200;
-const FRAME_HEIGHT = 160;
+const FRAME_HEIGHT = Math.round(FRAME_WIDTH / FRAME_ASPECT);
 const FRAME_THICKNESS = 8;
 const INNER_WIDTH = FRAME_WIDTH - FRAME_THICKNESS * 2;
 const INNER_HEIGHT = FRAME_HEIGHT - FRAME_THICKNESS * 2;
@@ -60,6 +63,13 @@ function isRealSession(sessionId: string): boolean {
 // COMPONENT
 // ============================================================================
 
+interface CityWindowProps {
+  /** Sprite da moldura+grades. Quando presente, substitui o frame e os
+   *  divisores desenhados via Graphics. O céu/sol/lua/prédios procedurais
+   *  continuam sendo renderizados por baixo (clipados pela máscara). */
+  frameTexture?: Texture | null;
+}
+
 /**
  * CityWindow — Window decoration showing city skyline.
  *
@@ -72,7 +82,7 @@ function isRealSession(sessionId: string): boolean {
  *   - `city/skyRenderer.ts`  — Sky gradient, sun, moon, stars, clouds
  *   - `city/buildingRenderer.ts` — Building silhouettes and windows
  */
-export function CityWindow(): ReactNode {
+export function CityWindow({ frameTexture }: CityWindowProps = {}): ReactNode {
   const [time, setTime] = useState(new Date());
   const [debugHour, setDebugHour] = useState(0);
   const [fastTimeToggle, setFastTimeToggle] = useState(false);
@@ -304,14 +314,17 @@ export function CityWindow(): ReactNode {
         toggledWindows,
       );
 
-      // Window pane dividers (cross pattern)
-      drawWindowDividers(g, bounds);
+      // Window pane dividers (cross pattern) — só desenhados quando NÃO
+      // estamos usando o sprite novo da moldura (que já traz as grades).
+      if (!frameTexture) {
+        drawWindowDividers(g, bounds);
+      }
 
       // Seasonal times are used inside drawStars/drawMoon/drawSunAndClouds;
       // we also need them for the drawContent dependency array.
       void getSeasonalTimes(time);
     },
-    [timeState, time, toggledWindows, citySeed, cloudOffsets],
+    [timeState, time, toggledWindows, citySeed, cloudOffsets, frameTexture],
   );
 
   // ============================================================================
@@ -326,8 +339,19 @@ export function CityWindow(): ReactNode {
       <pixiContainer ref={contentContainerRef}>
         <pixiGraphics draw={drawContent} />
       </pixiContainer>
-      {/* Frame drawn on top (not masked) */}
-      <pixiGraphics draw={drawFrame} />
+      {/* Frame: sprite overlay (com painéis transparentes) quando disponível,
+          senão fallback pro frame desenhado via Graphics. */}
+      {frameTexture ? (
+        <pixiSprite
+          texture={frameTexture}
+          x={0}
+          y={0}
+          width={FRAME_WIDTH}
+          height={FRAME_HEIGHT}
+        />
+      ) : (
+        <pixiGraphics draw={drawFrame} />
+      )}
     </pixiContainer>
   );
 }

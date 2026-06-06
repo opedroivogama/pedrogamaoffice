@@ -72,7 +72,18 @@ make opencode-build        # Build without registering
 - **/office-sprite** - Generate office furniture sprites
 - **/character-sprite** - Generate character sprite sheets (Nano Banana — upstream)
 - **/desk-accessory** - Generate tintable desk items
-- **/pixellab-character** - Generate full chibi character via PixelLab MCP: 8 rotations + 8-direction walks (v3) + breathing-idle, auto-deployed to `public/sprites/characters/<NAME>/` with backup + manifest
+- **/pixellab-character** - Generate full chibi character via PixelLab MCP: 8 rotations + 8-direction walks (v3) + breathing-idle, auto-deployed to `public/sprites/characters/<NAME>/` with backup + manifest in `sprites-pipeline/<NAME>/`
+
+### Sprite pipeline filesystem convention
+
+**Never write sprite intermediates, pipelines, or backups to the Desktop.** All transient/iterative sprite work lives under `sprites-pipeline/` inside this project:
+
+- `sprites-pipeline/<NAME>/` — current pipeline (rotations + animations + pipeline.py) for a character. Used by `/pixellab-character` as the working dir and to keep `cleanup.py` / `deploy.py` next to their inputs.
+- `sprites-pipeline/_old/` — superseded versions (e.g. `PEDRO_DIRETOR V6 BACKUP/`). Move here before generating a V_N+1.
+- `sprites-pipeline/_mobilia/` — loose intermediate PNGs (cadeira_nohalo.png, mesa3_processada.png, chao_madeira_preview.png, etc.) — anything that's a transformation step, not a deploy target.
+- `frontend/public/sprites/characters/<NAME>/` — only the final deployed sprites the game consumes. Updated by running `deploy.py` from the pipeline folder, not by hand.
+
+This applies to any sprite-generating skill (`/pixellab-character`, `/character-sprite`, `/office-sprite`, `/desk-accessory`) and to ad-hoc PixelLab/Nano Banana experiments.
 
 See `.claude/skills/*/SKILL.md` for details.
 

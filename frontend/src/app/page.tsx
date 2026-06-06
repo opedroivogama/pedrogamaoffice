@@ -42,6 +42,8 @@ import {
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
 import CalendarModal from "@/components/overlay/CalendarModal";
+import ElevatorModal from "@/components/overlay/ElevatorModal";
+import RadioModal from "@/components/overlay/RadioModal";
 import NotesModal from "@/components/notes/NotesModal";
 import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
@@ -432,6 +434,8 @@ export default function V2TestPage(): React.ReactNode {
       />
 
       <CalendarModal />
+      <ElevatorModal />
+      <RadioModal />
 
       <Modal
         isOpen={sessionPendingDelete !== null}

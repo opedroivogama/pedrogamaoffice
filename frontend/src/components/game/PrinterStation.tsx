@@ -25,6 +25,10 @@ interface PrinterStationProps {
   cornerTableTexture?: Texture | null;
   /** Printer texture */
   printerTexture: Texture | null;
+  /** Sprite integrado (printer-station.png) — quando disponível, substitui
+   *  cornerTable + printer separados. Paper animation reposicionada pra
+   *  emergir do slot do sprite novo. */
+  printerStationTexture?: Texture | null;
 }
 
 // Paper rotation angle in radians
@@ -117,6 +121,7 @@ export function PrinterStation({
   deskTexture,
   cornerTableTexture,
   printerTexture,
+  printerStationTexture,
 }: PrinterStationProps): ReactNode {
   const printProgress = usePrintAnimation(isPrinting);
   const [mask, setMask] = useState<Graphics | null>(null);
@@ -132,31 +137,47 @@ export function PrinterStation({
       {/* Drop shadow sob a mesa do printer station. */}
       <ContactShadow width={88} height={22} y={62} alpha={0.4} />
 
-      {/* Mesinha de canto — usa o sprite novo (corner-table.png, 720x719) quando
-          disponível. Fallback pra desk.png antiga reduzida. */}
-      {cornerTableTexture ? (
+      {/* Sprite integrado tem prioridade — printer-station.png já traz
+          mesinha + impressora desenhadas juntas. Scale 0.105 deixa o
+          footprint visual próximo ao setup anterior. Anchor (0.5, 0.95)
+          ancora o chão da mesinha logo acima do contact shadow. */}
+      {printerStationTexture ? (
         <pixiSprite
-          texture={cornerTableTexture}
-          anchor={{ x: 0.5, y: 0 }}
-          scale={0.1}
+          texture={printerStationTexture}
+          anchor={{ x: 0.5, y: 0.95 }}
+          y={70}
+          scale={0.147}
         />
-      ) : deskTexture ? (
-        <pixiSprite
-          texture={deskTexture}
-          anchor={{ x: 0.5, y: 0 }}
-          scale={{ x: 0.105 * 0.6, y: 0.105 }}
-        />
-      ) : null}
+      ) : (
+        <>
+          {/* Mesinha de canto — usa o sprite novo (corner-table.png, 720x719) quando
+              disponível. Fallback pra desk.png antiga reduzida. */}
+          {cornerTableTexture ? (
+            <pixiSprite
+              texture={cornerTableTexture}
+              anchor={{ x: 0.5, y: 0 }}
+              scale={0.1}
+            />
+          ) : deskTexture ? (
+            <pixiSprite
+              texture={deskTexture}
+              anchor={{ x: 0.5, y: 0 }}
+              scale={{ x: 0.105 * 0.6, y: 0.105 }}
+            />
+          ) : null}
 
-      {/* Printer (on top of desk) */}
-      {printerTexture && (
-        <pixiSprite
-          texture={printerTexture}
-          anchor={{ x: 0.5, y: 0.8 }}
-          y={15}
-          scale={0.08}
-        />
+          {/* Printer (on top of desk) */}
+          {printerTexture && (
+            <pixiSprite
+              texture={printerTexture}
+              anchor={{ x: 0.5, y: 0.8 }}
+              y={15}
+              scale={0.08}
+            />
+          )}
+        </>
       )}
+
 
       {/* Clipping mask for paper emerging from printer slot */}
       <pixiGraphics

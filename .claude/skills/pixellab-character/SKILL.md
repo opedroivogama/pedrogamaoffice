@@ -4,7 +4,8 @@ description: >
   Generate a full chibi pixel art character for the Jurídico Pro painel (escritorio online)
   via the PixelLab MCP — rotations in 8 directions + 8-direction walk cycles (v3 mode) +
   breathing-idle. Auto-curates frames, deploys to `frontend/public/sprites/characters/<NAME>/`,
-  saves backup + manifest on Desktop. Wires into useCharacterSprites + WanderingBoss/BossSprite
+  saves backup + manifest in `sprites-pipeline/<NAME>/` inside the project (NEVER on Desktop).
+  Wires into useCharacterSprites + WanderingBoss/BossSprite
   on request. Distinct from the upstream `character-sprite` skill that uses Nano Banana.
 triggers:
   - novo personagem pixellab
@@ -87,11 +88,13 @@ For polling: use Bash with `run_in_background: true` and `sleep 240 && echo done
 
 ### 5. Download to backup
 
-Create `C:\Users\Pedro\Desktop\<NAME> BACKUP\` with:
+Create `escritorio online/sprites-pipeline/<NAME>/` inside the project (NOT on Desktop) with:
 - `rotations/` — 8 PNGs (one per direction)
 - `animations/walk_<direction>_v3/` — 9 frames per direction (0-8)
 - `animations/idle/` — 4 frames (0-3)
 - `manifest.json` — character_id, animation_ids, prompt, deploy path, size
+
+If iterating (V2, V3, …), move the previous version to `sprites-pipeline/_old/<NAME> V<N>/` before creating the new one. Stray intermediate PNGs (mobília, cleanup tests, no-halo previews) go in `sprites-pipeline/_mobilia/` — never on the Desktop.
 
 Download URLs follow these patterns:
 ```
@@ -165,4 +168,4 @@ These were built with this exact workflow and serve as templates:
 - `frontend/public/sprites/characters/AI_GOLD/` — current Claude boss (Vision-style gold armor + visor open)
 - `frontend/public/sprites/characters/AI_GOLD_HELMET/` — same body with sealed full-face visor
 
-Backups: `Desktop/PEDRO BACKUP/`, `Desktop/CLAUDE GOLD BACKUP/`, `Desktop/AI GOLD BACKUP/`, `Desktop/AI GOLD HELMET BACKUP/`.
+Backup/pipeline source lives in `sprites-pipeline/<NAME>/` inside the project. Historical backups (PEDRO, CLAUDE GOLD, AI GOLD, AI GOLD HELMET) were originally on the Desktop but have been consolidated under `sprites-pipeline/_old/` during the 2026-06-06 cleanup.

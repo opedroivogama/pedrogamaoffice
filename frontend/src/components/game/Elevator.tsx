@@ -27,6 +27,9 @@ interface ElevatorProps {
   headsetTexture: Texture | null;
   /** Sunglasses texture for agents */
   sunglassesTexture: Texture | null;
+  /** Quando definido, clicar no elevador (frame ou portas) dispara este
+   *  callback. Usado pra abrir o ElevatorModal com a lista de andares. */
+  onTap?: () => void;
 }
 
 /**
@@ -84,6 +87,7 @@ export function Elevator({
   doorTexture,
   headsetTexture,
   sunglassesTexture,
+  onTap,
 }: ElevatorProps): ReactNode {
   const doorScale = useDoorAnimation(isOpen);
 
@@ -99,9 +103,16 @@ export function Elevator({
 
   return (
     <>
-      {/* Elevator frame (background) */}
+      {/* Elevator frame (background). Clicar dispara onTap → abre o
+          ElevatorModal com a lista de andares. */}
       {frameTexture && (
-        <pixiContainer x={ELEVATOR_POSITION.x} y={ELEVATOR_POSITION.y}>
+        <pixiContainer
+          x={ELEVATOR_POSITION.x}
+          y={ELEVATOR_POSITION.y}
+          eventMode={onTap ? "static" : "auto"}
+          cursor={onTap ? "pointer" : undefined}
+          onPointerTap={onTap}
+        >
           <pixiSprite texture={frameTexture} anchor={0.5} scale={0.26} />
         </pixiContainer>
       )}

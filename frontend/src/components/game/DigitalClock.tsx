@@ -52,16 +52,12 @@ export function DigitalClock({ format }: DigitalClockProps): ReactNode {
 
     // Inner display bezel
     g.roundRect(-50, -24, 100, 48, 4);
-    g.fill(0x0a1a0a);
+    g.fill(0x1a0a0a);
     g.stroke({ width: 1, color: 0x2d3748 });
 
-    // LCD screen background (dark green-black)
+    // LCD screen background (dark red-black, casa com a fonte vermelha)
     g.roundRect(-48, -22, 96, 44, 3);
-    g.fill(0x0d1f0d);
-
-    // Subtle screen reflection highlight
-    g.roundRect(-46, -20, 92, 2, 1);
-    g.fill({ color: 0x1a3a1a, alpha: 0.5 });
+    g.fill(0x1f0d0d);
   }, []);
 
   const timeString = formatTime(time);
@@ -80,13 +76,7 @@ export function DigitalClock({ format }: DigitalClockProps): ReactNode {
             fontFamily: "monospace",
             fontSize: 16,
             fontWeight: "bold",
-            fill: 0x33ff33,
-            dropShadow: {
-              color: 0x33ff33,
-              blur: 4,
-              alpha: 0.6,
-              distance: 0,
-            },
+            fill: 0xb8972a,
           })
         }
       />
@@ -102,13 +92,7 @@ export function DigitalClock({ format }: DigitalClockProps): ReactNode {
               fontFamily: "monospace",
               fontSize: 8,
               fontWeight: "bold",
-              fill: 0x33ff33,
-              dropShadow: {
-                color: 0x33ff33,
-                blur: 2,
-                alpha: 0.4,
-                distance: 0,
-              },
+              fill: 0xb8972a,
             })
           }
         />

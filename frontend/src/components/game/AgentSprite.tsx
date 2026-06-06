@@ -442,8 +442,7 @@ function AgentSpriteComponent({
         <Bubble content={bubble} yOffset={bubbleOffset} />
       )}
 
-      {/* Sims-style plumbob — only renders when this agent is being driven. */}
-      {isControlled && <Plumbob y={-100} />}
+      {/* Plumbob foi pra PlumbobOverlay no OfficeGame (sempre acima de tudo). */}
     </pixiContainer>
   );
 }

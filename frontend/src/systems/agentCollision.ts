@@ -21,7 +21,7 @@ const YIELD_WAIT_MAX_MS = 600;
 const MAX_REPATH_ATTEMPTS = 3;
 
 // Agent collision dimensions (based on capsule shape, matches boss)
-const AGENT_WIDTH = 48; // 1.5 blocks × 32px
+const AGENT_WIDTH = 32; // 1 block × 32px (era 48, reduzido pra aproximar agentes lateralmente)
 const AGENT_HEIGHT = 80; // 2.5 blocks × 32px
 const AGENT_BOTTOM_HALF_OFFSET = AGENT_HEIGHT / 4; // Check from center down to bottom
 

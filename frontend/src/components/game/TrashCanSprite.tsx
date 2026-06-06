@@ -8,7 +8,7 @@
 "use client";
 
 import { memo, useMemo, useCallback } from "react";
-import { Graphics, TextStyle } from "pixi.js";
+import { Graphics, TextStyle, Texture } from "pixi.js";
 
 // ============================================================================
 // TYPES
@@ -20,24 +20,40 @@ export interface TrashCanSpriteProps {
   contextUtilization: number; // 0.0 to 1.0
   isCompacting?: boolean; // True when compaction animation is active
   isStomping?: boolean; // True when boss is stomping on trash can (squish effect)
+  /** Sprite da lixeira de grade (179×240 fonte). Se null, cai num fallback
+   *  procedural antigo (mantido por backwards-compat — não chega a ser
+   *  exercitado em produção porque a textura sempre carrega). */
+  texture?: Texture | null;
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-// Trash can dimensions
-const CAN_WIDTH = 44;
-const CAN_HEIGHT = 52;
-const CAN_TOP_WIDTH = 50;
+// Trash can dimensions — tamanho de renderização do sprite. Mantém proporção
+// do PNG fonte (179:240 ≈ 0.745) escalado pra ~52px de altura, próximo das
+// dimensões procedurais antigas pra não quebrar layout.
+const CAN_WIDTH = 50; // largura visível do sprite
+const CAN_HEIGHT = 67; // altura visível do sprite (mantém ratio do PNG)
 const RIM_HEIGHT = 4;
 
+// Região da ABERTURA da lixeira no sprite — onde os papéis aparecem por cima
+// pra dar ilusão de enchimento. Medido visualmente no PNG (top da abertura
+// está logo abaixo da rim metálica; bottom é onde o fundo interno escurece).
+// Coords em pixel local (origem = centro do sprite por causa do anchor=0.5).
+const OPENING_TOP_Y = -CAN_HEIGHT / 2 + 8; // logo abaixo da rim
+const OPENING_BOTTOM_Y = -CAN_HEIGHT / 2 + 32; // até ~48% da altura
+const OPENING_HALF_WIDTH_TOP = 17;
+const OPENING_HALF_WIDTH_BOTTOM = 13; // estreita por perspectiva
+
 // Colors
+const PAPER_COLORS = [0xf5f5f0, 0xebe8e0, 0xfafaf5, 0xe8e5dd, 0xf0ede5];
+const PAPER_SHADOW = 0xd0cdc5;
+// Fallback wireframe colors (só usados se texture==null)
 const WIRE_COLOR = 0x4a4a4a;
 const WIRE_HIGHLIGHT = 0x6a6a6a;
 const RIM_COLOR = 0x3a3a3a;
-const PAPER_COLORS = [0xf5f5f0, 0xebe8e0, 0xfafaf5, 0xe8e5dd, 0xf0ede5];
-const PAPER_SHADOW = 0xd0cdc5;
+const CAN_TOP_WIDTH = 50;
 
 // Colors for percentage text based on fill level
 const FILL_COLORS: Record<number, number> = {
@@ -68,7 +84,79 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function drawTrashCan(g: Graphics, utilization: number): void {
+/**
+ * Desenha só os papéis crumplados (dentro da abertura + overflow) sobre
+ * o sprite da lixeira. Os papéis aparecem por cima do sprite mas só
+ * dentro da região da abertura — ilusão de enchimento.
+ */
+function drawPapersOnly(g: Graphics, utilization: number): void {
+  g.clear();
+  const fillLevel = Math.min(Math.max(utilization, 0), 1.0);
+  const rand = seededRandom(42);
+
+  // Papéis DENTRO da abertura — sobem do fundo até o topo conforme fillLevel
+  if (utilization > 0.05) {
+    const openingHeight = OPENING_BOTTOM_Y - OPENING_TOP_Y;
+    const fillHeight = openingHeight * fillLevel;
+    const fillTop = OPENING_BOTTOM_Y - fillHeight;
+
+    const numPapers = Math.floor(3 + fillLevel * 12);
+    for (let i = 0; i < numPapers; i++) {
+      const paperY = fillTop + rand() * fillHeight * 0.9;
+      // Interpola largura da abertura conforme profundidade
+      const t = (paperY - OPENING_TOP_Y) / openingHeight; // 0=top, 1=bottom
+      const halfWidthAtY =
+        OPENING_HALF_WIDTH_TOP +
+        (OPENING_HALF_WIDTH_BOTTOM - OPENING_HALF_WIDTH_TOP) * t;
+      const paperX = (rand() - 0.5) * halfWidthAtY * 1.6;
+      const paperSize = 3 + rand() * 5;
+      const colorIdx = Math.floor(rand() * PAPER_COLORS.length);
+      drawCrumpledPaper(
+        g,
+        paperX,
+        paperY,
+        paperSize,
+        PAPER_COLORS[colorIdx],
+        rand,
+      );
+    }
+  }
+
+  // Overflow — papéis saindo pela rim quando >85%
+  if (utilization > 0.85) {
+    // Avança o RNG passando pelos papéis internos (5 chamadas por paper)
+    const numPapers = Math.floor(3 + fillLevel * 12);
+    for (let i = 0; i < numPapers; i++) {
+      rand();
+      rand();
+      rand();
+      rand();
+      rand();
+    }
+    const overflowCount = Math.floor((utilization - 0.85) * 20);
+    for (let i = 0; i < overflowCount; i++) {
+      const paperX = (rand() - 0.5) * OPENING_HALF_WIDTH_TOP * 1.5;
+      const paperY = OPENING_TOP_Y - rand() * 12;
+      const paperSize = 4 + rand() * 4;
+      const colorIdx = Math.floor(rand() * PAPER_COLORS.length);
+      drawCrumpledPaper(
+        g,
+        paperX,
+        paperY,
+        paperSize,
+        PAPER_COLORS[colorIdx],
+        rand,
+      );
+    }
+  }
+}
+
+/**
+ * Fallback procedural completo (wireframe + papéis) — só é usado quando
+ * a textura não carregou. Em runtime a textura SEMPRE carrega, então
+ * esse caminho serve só como safety net.
+ */
+function drawTrashCanFallback(g: Graphics, utilization: number): void {
   g.clear();
 
   const halfWidth = CAN_WIDTH / 2;
@@ -261,6 +349,7 @@ function TrashCanSpriteComponent({
   contextUtilization,
   isCompacting = false,
   isStomping = false,
+  texture,
 }: TrashCanSpriteProps) {
   const frameIndex = useMemo(
     () => getFrameIndex(contextUtilization),
@@ -291,9 +380,15 @@ function TrashCanSpriteComponent({
     return { shakeOffset: 0, shakeRotation: 0 };
   }, [isStomping, contextUtilization]);
 
-  // Memoize the draw callback to prevent unnecessary redraws
-  const drawCallback = useCallback(
-    (g: Graphics) => drawTrashCan(g, contextUtilization),
+  // Papéis sobre o sprite (preenchimento da abertura + overflow)
+  const drawPapersCallback = useCallback(
+    (g: Graphics) => drawPapersOnly(g, contextUtilization),
+    [contextUtilization],
+  );
+
+  // Fallback procedural quando a textura não carrega (não exercitado em runtime)
+  const drawFallbackCallback = useCallback(
+    (g: Graphics) => drawTrashCanFallback(g, contextUtilization),
     [contextUtilization],
   );
 
@@ -341,21 +436,33 @@ function TrashCanSpriteComponent({
       rotation={shakeRotation}
       scale={squishScale}
     >
-      {/* Procedurally drawn mesh wire trash can */}
-      <pixiGraphics draw={drawCallback} />
+      {/* Lixeira: sprite da grade metálica + papéis crumplados por cima
+          da abertura. Fallback procedural se textura não carregou. */}
+      {texture ? (
+        <pixiSprite
+          texture={texture}
+          anchor={0.5}
+          width={CAN_WIDTH}
+          height={CAN_HEIGHT}
+        />
+      ) : (
+        <pixiGraphics draw={drawFallbackCallback} />
+      )}
+      {/* Papéis sobre a abertura — ilusão de enchimento por dentro */}
+      <pixiGraphics draw={drawPapersCallback} />
 
       {/* Context percentage label - rendered at 2x and scaled to 0.5 for crisp text */}
       <pixiText
         text={`${percentage}%`}
         anchor={0.5}
-        y={38}
+        y={CAN_HEIGHT / 2 + 10}
         scale={0.5}
         style={textStyle}
       />
       <pixiText
         text={isCompacting ? "compacting..." : "context"}
         anchor={0.5}
-        y={46}
+        y={CAN_HEIGHT / 2 + 18}
         scale={0.5}
         style={isCompacting ? compactingStyle : labelStyle}
       />

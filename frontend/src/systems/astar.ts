@@ -97,13 +97,11 @@ class PriorityQueue {
 }
 
 /**
- * Calculate octile distance heuristic (allows diagonal movement).
+ * Manhattan distance heuristic — coerente com o pathfind 4-direcional
+ * (sem diagonais). Pedro 2026-06-06.
  */
 function heuristic(gx1: number, gy1: number, gx2: number, gy2: number): number {
-  const dx = Math.abs(gx1 - gx2);
-  const dy = Math.abs(gy1 - gy2);
-  // Octile distance: cost of diagonal moves + remaining cardinal moves
-  return Math.min(dx, dy) * DIAGONAL_COST + Math.abs(dx - dy);
+  return Math.abs(gx1 - gx2) + Math.abs(gy1 - gy2);
 }
 
 /**
@@ -125,14 +123,20 @@ export function findPath(
   start: Position,
   end: Position,
   ignoreAgentId?: string,
+  customWalkable?: (gx: number, gy: number) => boolean,
 ): GridPosition[] {
   const grid = getNavigationGrid();
+  // Função walkable usada em TODA a busca — permite injetar regra mais
+  // estrita (ex: footprint inflado) sem mexer no grid global.
+  const isWalk = customWalkable
+    ? customWalkable
+    : (gx: number, gy: number) => grid.isWalkable(gx, gy, ignoreAgentId);
 
   const startGrid = grid.worldToGrid(start.x, start.y);
   const endGrid = grid.worldToGrid(end.x, end.y);
 
   // Quick check: if start or end is not walkable, return empty path
-  if (!grid.isWalkable(startGrid.gx, startGrid.gy, ignoreAgentId)) {
+  if (!isWalk(startGrid.gx, startGrid.gy)) {
     // Try to find nearest walkable tile to start
     const nearStart = findNearestWalkable(grid, startGrid, ignoreAgentId);
     if (!nearStart) return [];
@@ -140,7 +144,7 @@ export function findPath(
     startGrid.gy = nearStart.gy;
   }
 
-  if (!grid.isWalkable(endGrid.gx, endGrid.gy, ignoreAgentId)) {
+  if (!isWalk(endGrid.gx, endGrid.gy)) {
     // Try to find nearest walkable tile to end
     const nearEnd = findNearestWalkable(grid, endGrid, ignoreAgentId);
     if (!nearEnd) return [];
@@ -193,7 +197,7 @@ export function findPath(
       const neighborKey = `${neighbor.gx},${neighbor.gy}`;
 
       if (closedSet.has(neighborKey)) continue;
-      if (!grid.isWalkable(neighbor.gx, neighbor.gy, ignoreAgentId)) continue;
+      if (!isWalk(neighbor.gx, neighbor.gy)) continue;
 
       const dx = neighbor.gx - current.gx;
       const dy = neighbor.gy - current.gy;
@@ -291,8 +295,9 @@ export function findWorldPath(
   start: Position,
   end: Position,
   ignoreAgentId?: string,
+  customWalkable?: (gx: number, gy: number) => boolean,
 ): Position[] {
-  const gridPath = findPath(start, end, ignoreAgentId);
+  const gridPath = findPath(start, end, ignoreAgentId, customWalkable);
 
   if (gridPath.length === 0) {
     // No valid path found - log warning and return empty

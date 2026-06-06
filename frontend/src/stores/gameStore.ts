@@ -211,12 +211,31 @@ export interface GameStore {
     path: Position[];
     pathIdx: number;
     targetTile: { gx: number; gy: number };
+    /** Quando presente, marca o personagem como "sentado" na cadeira ao
+     *  terminar o path. Setado pelo confirmSit. */
+    sittingTargetChair?: { x: number; y: number; deskTopY: number };
   } | null;
   setClickToMoveTarget: (
     target: GameStore["clickToMoveTarget"],
   ) => void;
   advanceClickToMovePathIdx: (nextIdx: number) => void;
   clearClickToMoveTarget: () => void;
+
+  /** Mensagem transitória de erro de navegação (mostrada como toast pelo
+   *  OfficeGame com auto-dismiss). Setada pelo usePlayerControl quando
+   *  não há caminho viável até o destino. Pedro 2026-06-06. */
+  pathErrorMessage: string | null;
+  setPathErrorMessage: (msg: string | null) => void;
+
+  /** Map entityId → cadeira atual. Quando presente, o componente renderiza
+   *  versão cropada (waist-up) na cadeira. Pedro 2026-06-06: feature
+   *  auto-seated (puxar pra cadeira por proximidade) foi desativada;
+   *  agora só entra via click explícito + confirmação. */
+  entitySeats: Map<string, { x: number; y: number; deskTopY: number }>;
+  setEntitySeated: (
+    id: string,
+    chair: { x: number; y: number; deskTopY: number } | null,
+  ) => void;
 
   // ========== Boss Auto-Walk ==========
   // Autonomous walk target for the boss. Set by the WebSocket handler in
@@ -469,12 +488,22 @@ const initialState = {
   controlledEntityId: null as string | null,
   bossFacing: null as GameStore["bossFacing"],
   clickToMoveTarget: null as GameStore["clickToMoveTarget"],
+  pathErrorMessage: null as string | null,
+  entitySeats: new Map<
+    string,
+    { x: number; y: number; deskTopY: number }
+  >([
+    // Claudius sentado na mesa dele por padrão (Pedro 2026-06-06). Só sai
+    // quando o Pedro remove manualmente (clique no Claudius pra levantar).
+    ["boss", { x: 640, y: 900, deskTopY: 930 }],
+  ]),
   bossWalkTarget: null as Position | null,
   userAvatarPositions: new Map<string, Position>([
     ["pedro", { x: 950, y: 870 }],
     ["estagiario", { x: 1130, y: 870 }],
     ["chrome-dummy", { x: 770, y: 870 }],
     ["gestor-trafego", { x: 1100, y: 870 }],
+    ["suporte-comercial", { x: 1180, y: 870 }],
     ["pedro-samurai", { x: 800, y: 870 }],
   ]),
   userAvatarBubbles: new Map<string, string>(),
@@ -858,6 +887,16 @@ export const useGameStore = create<GameStore>()(
       }),
 
     clearClickToMoveTarget: () => set(() => ({ clickToMoveTarget: null })),
+
+    setPathErrorMessage: (msg) => set(() => ({ pathErrorMessage: msg })),
+
+    setEntitySeated: (id, chair) =>
+      set((state) => {
+        const next = new Map(state.entitySeats);
+        if (chair) next.set(id, chair);
+        else next.delete(id);
+        return { entitySeats: next };
+      }),
 
     setBossWalkTarget: (target) => set(() => ({ bossWalkTarget: target })),
 

@@ -15,7 +15,7 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import boss, chat, events, floors, launcher, notes, preferences, sessions
+from app.api.routes import boss, chat, collision, events, floors, launcher, notes, preferences, sessions
 from app.api.websocket import (
     manager,
 )
@@ -223,6 +223,7 @@ app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(boss.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(notes.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(collision.router, prefix=f"{settings.API_V1_STR}")
 
 
 @app.get("/health")

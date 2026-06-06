@@ -51,6 +51,15 @@ export interface BossSpriteProps {
    *  for new messages. Drives the ⚔️🔨🛡️ work indicator over his head. */
   isWorking?: boolean;
   isAway?: boolean; // Whether boss is away from desk (hides body, shows only furniture)
+  /** Qual camada visual renderizar. 'all' = comportamento legado (tudo num
+   *  container). 'chair' / 'desk' / 'character' renderizam só uma parte —
+   *  usado pelo OfficeGame pra colocar cada camada num pixiContainer-irmão
+   *  com zIndex próprio dentro do sortable container, permitindo Y-sort
+   *  entre o personagem do Claudius e os móveis dele (Pedro 2026-06-06). */
+  renderLayers?: "all" | "chair" | "desk" | "character";
+  /** zIndex aplicado no container raiz — pra Y-sort quando o pai tem
+   *  sortableChildren. Só usado quando `renderLayers !== 'all'`. */
+  zIndex?: number;
 }
 
 // ============================================================================
@@ -284,7 +293,13 @@ function BossSpriteComponent({
   isTyping = false,
   isWorking = false,
   isAway = false,
+  renderLayers = "all",
+  zIndex,
 }: BossSpriteProps): ReactNode {
+  // Quais blocos do return renderizar nesta instância.
+  const showChair = renderLayers === "all" || renderLayers === "chair";
+  const showDesk = renderLayers === "all" || renderLayers === "desk";
+  const showCharacter = renderLayers === "all" || renderLayers === "character";
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
 
@@ -393,16 +408,17 @@ function BossSpriteComponent({
     <pixiContainer
       x={position.x}
       y={position.y}
+      zIndex={zIndex}
       onPointerTap={handleBossTap}
       interactive={clickToFocusEnabled}
     >
       {/* Drop shadow sob a mesa do boss (vai pro chão, atrás da cadeira).
           y subido de 80→60 (Pedro 2026-06-06): conjunto da mesa do boss
           sobe 20px pra não cortar no limite inferior da sala. */}
-      <ContactShadow width={170} height={26} y={50} alpha={0.4} />
+      {showChair && <ContactShadow width={170} height={26} y={50} alpha={0.4} />}
 
       {/* Chair - behind everything. y subido de 30→10 (acompanha o conjunto). */}
-      {chairTexture ? (
+      {showChair && (chairTexture ? (
         <pixiSprite
           texture={chairTexture}
           anchor={0.5}
@@ -412,11 +428,11 @@ function BossSpriteComponent({
         />
       ) : (
         <pixiGraphics draw={drawFallbackChair} />
-      )}
+      ))}
 
       {/* Boss character (body + accessories) - hidden when away from desk.
           y subido de 6→-14 (acompanha conjunto da mesa). */}
-      {!isAway && (
+      {showCharacter && !isAway && (
         <pixiContainer y={-24}>
           {/* Boss body — sentado, sempre cropado pra mostrar só do peito
               pra cima. Sem o crop, sprites grandes (240px) mostram pernas
@@ -450,7 +466,7 @@ function BossSpriteComponent({
             return (
               <pixiContainer
                 x={5}
-                y={4 + hideOffset}
+                y={4 + hideOffset + 20}
                 scale={{ x: 1, y: secondaryStretchY }}
               >
                 <pixiSprite
@@ -481,23 +497,24 @@ function BossSpriteComponent({
       )}
 
       {/* Desk surface - Mesa do boss no MESMO padrão das outras (Pedro 2026-06-04):
-          scale 0.21 (era 0.105), x=-25 y=-25 (y subido de -5→-25 a pedido
-          do Pedro 2026-06-06 — conjunto sobe 20px pra não cortar). */}
-      {deskTexture ? (
+          y=0.21 (era 0.105). Pedro pediu (2026-06-06) pra aumentar
+          lateralmente — x=0.27 deixa a mesa ~28% mais larga sem alongar
+          em altura. */}
+      {showDesk && (deskTexture ? (
         <pixiSprite
           texture={deskTexture}
           anchor={{ x: 0.5, y: 0 }}
           x={-25}
           y={-35}
-          scale={0.21}
+          scale={{ x: 0.27, y: 0.21 }}
         />
       ) : (
         <pixiGraphics draw={drawFallbackDesk} />
-      )}
+      ))}
 
       {/* Keyboard do boss DESABILITADO (Pedro 2026-06-04 — mesa nova já tem
           computador integrado). Pra reativar, troca `false &&` por só `keyboardTexture &&`. */}
-      {false && keyboardTexture && (
+      {showCharacter && false && keyboardTexture && (
         <pixiSprite
           texture={keyboardTexture}
           anchor={0.5}
@@ -508,7 +525,7 @@ function BossSpriteComponent({
       )}
 
       {/* Arms - hidden when away from desk or when using character sprite */}
-      {!isAway && !characterTexture && (
+      {showCharacter && !isAway && !characterTexture && (
         <pixiContainer y={6}>
           <pixiGraphics draw={drawRightArmCallback} />
           <pixiGraphics draw={drawLeftArmCallback} />
@@ -516,7 +533,7 @@ function BossSpriteComponent({
       )}
 
       {/* Headset - hidden when away from desk */}
-      {!isAway && headsetTexture && (
+      {showCharacter && !isAway && headsetTexture && (
         <pixiSprite
           texture={headsetTexture}
           anchor={0.5}
@@ -527,7 +544,7 @@ function BossSpriteComponent({
       )}
 
       {/* Monitor do boss DESABILITADO (Pedro 2026-06-04). */}
-      {false && monitorTexture && (
+      {showCharacter && false && monitorTexture && (
         <pixiSprite
           texture={monitorTexture}
           anchor={0.5}
@@ -544,9 +561,22 @@ function BossSpriteComponent({
           WanderingBoss em pé (y=-187, sprite 128px). Sentado o sprite é
           240px com 42% escondido + padding superior do PNG gold, então
           o cropping deixava a badge muito longe da cabeça visível.
-          Valor atual y=-78 mantém ~30-40px de gap percebido. */}
-      {!isAway && (
-        <pixiContainer x={5} y={-78}>
+          Atualizado Pedro 2026-06-06: usa a regra "8px acima do topo do crânio"
+          igual aos UserAvatars. Topo do crânio sentado =
+            hideOffset - characterRenderSize * (1 - topPaddingRatio).
+          Pra característica do Claudius com topPaddingRatio ≈ 58/248. */}
+      {showCharacter && !isAway && (
+        <pixiContainer
+          x={5}
+          y={
+            // Pai está em y=-24, então +24 pra ficar em coords absolutas.
+            // Topo do crânio = hideOffset - characterRenderSize*(1-topPad).
+            // Badge fica 8px acima.
+            characterRenderSize * SEATED_HIDE_RATIO -
+            characterRenderSize * (1 - 58 / 248) -
+            16
+          }
+        >
           <pixiGraphics
             draw={(g) => {
               const label = "Claudius";
@@ -580,7 +610,7 @@ function BossSpriteComponent({
           delegating / receiving) — ou seja, ele está produzindo E bloqueado
           pra novas mensagens. ⚔️🔨🛡️ deixa óbvio que não dá pra
           interromper agora. y=-250: ~50px acima da badge (y=-200). */}
-      {!isAway && isWorking && (
+      {showCharacter && !isAway && isWorking && (
         <pixiContainer
           x={5}
           y={-78 - CLAUDIUS_WORK_INDICATOR_GAP}
@@ -591,14 +621,14 @@ function BossSpriteComponent({
       )}
 
       {/* Task marquee on desk - scrolling user prompt */}
-      {currentTask && (
+      {showCharacter && currentTask && (
         <pixiContainer x={0} y={70}>
           <MarqueeText text={currentTask} width={115} color="#00ff88" />
         </pixiContainer>
       )}
 
       {/* Bubble - only render if renderBubble is true and boss is at desk */}
-      {renderBubble && bubble && !isAway && (
+      {showCharacter && renderBubble && bubble && !isAway && (
         <Bubble content={bubble} yOffset={bubbleOffset} />
       )}
 

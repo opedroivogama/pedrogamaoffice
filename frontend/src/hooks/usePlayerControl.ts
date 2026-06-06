@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useGameStore, type GameStore } from "@/stores/gameStore";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/canvas";
 import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
+import { calculatePath } from "@/systems/pathfinding";
 import { directionFromDelta } from "@/hooks/usePedroSprites";
 
 /** Resolve current pixel position of a controlled entity (boss / user avatar
@@ -26,31 +27,59 @@ function getEntityPosition(
  * grid. If the diagonal target is blocked, try sliding along X or Y. If both
  * are blocked, return the current position unchanged.
  */
+/** Offset Y entre `position.y` (base do canvas do sprite) e o pé VISUAL do
+ *  personagem, em world coords. Sprites do PixelLab têm padding simétrico:
+ *  Pedro 58px top + 58px bottom no canvas 228 → renderizado em size=256
+ *  dá ~65px de gap entre pé visual e base do canvas. Claudius 61px num
+ *  canvas 240 renderizado em 128 dá ~32px. Aplicado tanto na footprint
+ *  check de colisão quanto no overlay de debug do CollisionEditor.
+ *  Pedro 2026-06-06. */
+export const CHARACTER_FOOT_OFFSET_Y: Record<string, number> = {
+  boss: -40,
+  pedro: -80,
+  "pedro-samurai": -80,
+  "gestor-trafego": -80,
+  estagiario: -60,
+  "chrome-dummy": -60,
+};
+export function getCharacterFootOffsetY(entityId: string): number {
+  return CHARACTER_FOOT_OFFSET_Y[entityId] ?? -60;
+}
+
+/** Checa se o ponto (pé visual do personagem) cai em tile walkable.
+ *  Pedro 2026-06-06: footprint multi-ponto virou colcha de retalhos com
+ *  inúmeros casos especiais; voltei ao mínimo viável (só centro). Se o
+ *  personagem encostar visualmente em algum sprite, tudo bem — A* respeita
+ *  walls pintadas no editor, que é o controle real. */
+function isFootprintWalkable(x: number, y: number): boolean {
+  const grid = getNavigationGrid();
+  return grid.isWalkable(
+    Math.floor(x / TILE_SIZE),
+    Math.floor(y / TILE_SIZE),
+  );
+}
+
 function resolveCollidedMove(
   cur: { x: number; y: number },
   dx: number,
   dy: number,
   step: number,
   margin: number,
+  footOffsetY: number,
 ): { x: number; y: number } {
-  const grid = getNavigationGrid();
-  const isWalkableAt = (x: number, y: number) => {
-    const gx = Math.floor(x / TILE_SIZE);
-    const gy = Math.floor(y / TILE_SIZE);
-    return grid.isWalkable(gx, gy);
-  };
-
   const targetX = clamp(cur.x + dx * step, margin, CANVAS_WIDTH - margin);
   const targetY = clamp(cur.y + dy * step, margin, CANVAS_HEIGHT - margin);
+  const checkY = targetY + footOffsetY;
+  const checkCurY = cur.y + footOffsetY;
 
-  if (isWalkableAt(targetX, targetY)) {
+  if (isFootprintWalkable(targetX, checkY)) {
     return { x: targetX, y: targetY };
   }
-  // Try axis-aligned slides (X-only, then Y-only).
-  if (dx !== 0 && isWalkableAt(targetX, cur.y)) {
+  // Slides axiais (X-only, Y-only).
+  if (dx !== 0 && isFootprintWalkable(targetX, checkCurY)) {
     return { x: targetX, y: cur.y };
   }
-  if (dy !== 0 && isWalkableAt(cur.x, targetY)) {
+  if (dy !== 0 && isFootprintWalkable(cur.x, checkY)) {
     return { x: cur.x, y: targetY };
   }
   return cur;
@@ -207,6 +236,12 @@ export function usePlayerControl(): void {
         }
 
         const step = SPEED_PX_PER_SEC * dt;
+        const footOffset = getCharacterFootOffsetY(controlledEntityId);
+        // Qualquer movimento por teclado tira o personagem do estado
+        // "sentado" — ele "levanta" da cadeira automaticamente.
+        if (store.entitySeats.has(controlledEntityId)) {
+          store.setEntitySeated(controlledEntityId, null);
+        }
 
         if (controlledEntityId === "boss") {
           // Normal movement clears any rotate-only override so the
@@ -218,6 +253,7 @@ export function usePlayerControl(): void {
             dy,
             step,
             MARGIN,
+            footOffset,
           );
           store.setBossPosition(next);
         } else if (store.userAvatarPositions.has(controlledEntityId)) {
@@ -228,7 +264,14 @@ export function usePlayerControl(): void {
           }
           const cur = store.userAvatarPositions.get(controlledEntityId);
           if (cur) {
-            const next = resolveCollidedMove(cur, dx, dy, step, MARGIN);
+            const next = resolveCollidedMove(
+              cur,
+              dx,
+              dy,
+              step,
+              MARGIN,
+              footOffset,
+            );
             store.setUserAvatarPosition(controlledEntityId, next);
           }
         } else {
@@ -240,6 +283,7 @@ export function usePlayerControl(): void {
               dy,
               step,
               MARGIN,
+              footOffset,
             );
             store.updateAgentPosition(controlledEntityId, next);
             // Keep target in sync so the animation system doesn't try to
@@ -281,6 +325,21 @@ export function usePlayerControl(): void {
               }
             }
 
+            // Click-to-move: mesma checagem simples do WASD (só central).
+            // Snap final no último waypoint ignora check (sentar em cadeira
+            // cercada de walls). Se o passo atual cair em wall, aborta com
+            // toast — sem retry inflado, A* já tinha resolvido o path.
+            const isFinalSnap =
+              advanceWaypoint && ctm.pathIdx + 1 >= ctm.path.length;
+            const footOff = getCharacterFootOffsetY(controlledEntityId);
+            const checkY = next.y + footOff;
+            if (!isFinalSnap && !isFootprintWalkable(next.x, checkY)) {
+              store.clearClickToMoveTarget();
+              store.setPathErrorMessage("Sem caminho possível");
+              rafId = requestAnimationFrame(tick);
+              return;
+            }
+
             // Commit position via the same setters as keyboard movement.
             if (controlledEntityId === "boss") {
               store.setBossPosition(next);
@@ -294,6 +353,14 @@ export function usePlayerControl(): void {
             if (advanceWaypoint) {
               const nextIdx = ctm.pathIdx + 1;
               if (nextIdx >= ctm.path.length) {
+                // Chegou no destino — se era um sit-target, marca como
+                // sentado pra renderizar versão cropada. Pedro 2026-06-06.
+                if (ctm.sittingTargetChair) {
+                  store.setEntitySeated(
+                    controlledEntityId,
+                    ctm.sittingTargetChair,
+                  );
+                }
                 store.clearClickToMoveTarget();
               } else {
                 store.advanceClickToMovePathIdx(nextIdx);

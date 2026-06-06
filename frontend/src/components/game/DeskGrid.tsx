@@ -192,6 +192,14 @@ export function DeskSurfacesBase({
   );
 }
 
+/** Mapa de cor da caneca decorativa por índice de mesa. Grid 4 colunas:
+ *  índice 0 = linha 0 col 0 (esquerda topo), índice 6 = linha 1 col 2.
+ *  Pra adicionar / mudar canecas, edite esse map. */
+const MUG_COLOR_BY_DESK_INDEX = new Map<number, "blue" | "black">([
+  [0, "blue"],
+  [6, "black"],
+]);
+
 interface DeskSurfacesTopProps {
   deskCount: number;
   occupiedDesks: Set<number>;
@@ -205,6 +213,8 @@ interface DeskSurfacesTopProps {
   rubiksCubeTexture: Texture | null;
   rubberDuckTexture: Texture | null;
   thermosTexture: Texture | null;
+  blueMugTexture: Texture | null;
+  blackMugTexture: Texture | null;
 }
 
 /**
@@ -223,13 +233,19 @@ export function DeskSurfacesTop({
   rubiksCubeTexture,
   rubberDuckTexture,
   thermosTexture,
+  blueMugTexture,
+  blackMugTexture,
 }: DeskSurfacesTopProps): ReactNode {
   const desks = useDeskPositions(deskCount, occupiedDesks);
 
   return (
     <>
       {desks.map((desk, i) => (
-        <pixiContainer key={i} x={desk.x} y={desk.y}>
+        // zIndex = desk.y + 80 (mesmo da mesa). Compete com personagens no
+        // Y-sort: foot.y maior → personagem cobre; foot.y menor → personagem
+        // coberto. Pedro 2026-06-06: regra precisa valer pra todos (Pedro,
+        // gestor, Claudius, agents).
+        <pixiContainer key={i} x={desk.x} y={desk.y} zIndex={desk.y + 80}>
           {/* Monitor + glow LCD - DESABILITADO (Pedro pediu sala sem computador,
               2026-06-04). Pra reativar, troca `false &&` por só `monitorTexture &&`. */}
           {false && monitorTexture && (
@@ -281,6 +297,23 @@ export function DeskSurfacesTop({
           {false && getDeskItem(i) === "thermos" && thermosTexture && (
             <pixiSprite texture={thermosTexture} anchor={0.5} x={52} y={40} scale={0.36} />
           )}
+          {/* Caneca decorativa nas mesas mapeadas em MUG_COLOR_BY_DESK_INDEX.
+              Variação de cor (azul/preto) escolhida por mesa. */}
+          {(() => {
+            const color = MUG_COLOR_BY_DESK_INDEX.get(i);
+            if (!color) return null;
+            const tex = color === "blue" ? blueMugTexture : blackMugTexture;
+            if (!tex) return null;
+            return (
+              <pixiSprite
+                texture={tex}
+                anchor={{ x: 0.5, y: 1 }}
+                x={30}
+                y={68}
+                scale={0.048}
+              />
+            );
+          })()}
           {/* Task marquee on desk surface - only for occupied desks */}
           <DeskMarquee text={deskTasks.get(i + 1) ?? ""} />
         </pixiContainer>

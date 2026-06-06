@@ -20,7 +20,7 @@
  * 11: Kanban Board (task tracking with TODO/IN PROGRESS/DONE columns)
  */
 
-import { Graphics } from "pixi.js";
+import { Graphics, type Texture } from "pixi.js";
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import type { TodoItem, WhiteboardMode, Agent } from "@/types";
 import { useGameStore } from "@/stores/gameStore";
@@ -47,22 +47,34 @@ interface WhiteboardFrameProps {
   children: ReactNode;
   onPointerDown: () => void;
   mode: WhiteboardMode;
+  /** Quando presente, substitui a moldura procedural (shadow+bg+silver
+   *  border+tray+markers) por essa textura. O header bar + dots + content
+   *  continuam renderizados por cima. */
+  frameTexture?: Texture | null;
 }
+
+// Dimensões alvo da moldura. BOARD_HEIGHT cresce de 205 -> 225 (aspect 1.47
+// da PNG nova) quando frameTexture estiver disponível — modes posicionados
+// dentro continuam funcionando porque a área de conteúdo só fica maior.
+const BOARD_WIDTH = 330;
+const BOARD_HEIGHT_PROCEDURAL = 205;
+const BOARD_HEIGHT_SPRITE = 225;
 
 function WhiteboardFrame({
   children,
   onPointerDown,
   mode,
+  frameTexture,
 }: WhiteboardFrameProps): ReactNode {
   const drawWhiteboard = useCallback((g: Graphics) => {
     g.clear();
 
     // Board shadow
-    g.roundRect(4, 4, 330, 205, 8);
+    g.roundRect(4, 4, BOARD_WIDTH, BOARD_HEIGHT_PROCEDURAL, 8);
     g.fill({ color: 0x000000, alpha: 0.2 });
 
     // Board background
-    g.roundRect(0, 0, 330, 205, 8);
+    g.roundRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT_PROCEDURAL, 8);
     g.fill(0xffffff);
     g.stroke({ width: 4, color: 0x5d4037 });
 
@@ -89,11 +101,32 @@ function WhiteboardFrame({
     });
   }, []);
 
+  // Header bar separado pra usar SÓ quando frameTexture está disponível
+  // (a versão procedural já desenha o header dentro de drawWhiteboard).
+  const drawHeaderBar = useCallback((g: Graphics) => {
+    g.clear();
+    g.roundRect(10, 10, 310, 24, 3);
+    g.fill({ color: 0x2d3748, alpha: 0.9 });
+  }, []);
+
   const modeInfo = MODE_INFO[mode];
 
   return (
     <pixiContainer eventMode="static" onPointerDown={onPointerDown}>
-      <pixiGraphics draw={drawWhiteboard} />
+      {frameTexture ? (
+        <>
+          <pixiSprite
+            texture={frameTexture}
+            x={0}
+            y={0}
+            width={BOARD_WIDTH}
+            height={BOARD_HEIGHT_SPRITE}
+          />
+          <pixiGraphics draw={drawHeaderBar} />
+        </>
+      ) : (
+        <pixiGraphics draw={drawWhiteboard} />
+      )}
 
       {/* Header - rendered at 2x for sharpness */}
       <pixiContainer x={165} y={22} scale={0.5}>
@@ -137,9 +170,11 @@ function WhiteboardFrame({
 
 export interface WhiteboardProps {
   todos: TodoItem[];
+  /** Substitui a moldura procedural pela arte que o Pedro desenhou. */
+  frameTexture?: Texture | null;
 }
 
-export function Whiteboard({ todos }: WhiteboardProps): ReactNode {
+export function Whiteboard({ todos, frameTexture }: WhiteboardProps): ReactNode {
   const whiteboardData = useGameStore((s) => s.whiteboardData);
   const whiteboardMode = useGameStore((s) => s.whiteboardMode);
   const cycleMode = useGameStore((s) => s.cycleWhiteboardMode);
@@ -232,7 +267,7 @@ export function Whiteboard({ todos }: WhiteboardProps): ReactNode {
   };
 
   return (
-    <WhiteboardFrame onPointerDown={handleClick} mode={whiteboardMode}>
+    <WhiteboardFrame onPointerDown={handleClick} mode={whiteboardMode} frameTexture={frameTexture}>
       {renderMode()}
     </WhiteboardFrame>
   );

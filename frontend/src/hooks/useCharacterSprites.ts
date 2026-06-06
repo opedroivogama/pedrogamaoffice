@@ -144,6 +144,14 @@ export interface DefaultCharacterTextures {
   claudeGoldBackStep2: Texture | null;
   /** AI_GOLD breathing-idle south frames (4 frames cycled for subtle breathing). */
   claudeGoldIdleFrames: (Texture | null)[];
+  /** CLAUDE_GOLD south-east rotation (static, sem walk animation). */
+  claudeGoldSEIdle: Texture | null;
+  /** CLAUDE_GOLD south-west rotation. */
+  claudeGoldSWIdle: Texture | null;
+  /** CLAUDE_GOLD north-east rotation. */
+  claudeGoldNEIdle: Texture | null;
+  /** CLAUDE_GOLD north-west rotation. */
+  claudeGoldNWIdle: Texture | null;
   /** AI_SILVER south rotation — silver Mark-II prototype variant for agents. */
   aiSilverIdle: Texture | null;
   /** AI_SILVER walk-south frame 1 (left foot). */
@@ -201,6 +209,10 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
     claudeGoldBackStep1: null,
     claudeGoldBackStep2: null,
     claudeGoldIdleFrames: [],
+    claudeGoldSEIdle: null,
+    claudeGoldSWIdle: null,
+    claudeGoldNEIdle: null,
+    claudeGoldNWIdle: null,
     aiSilverIdle: null,
     aiSilverStepLeft: null,
     aiSilverStepRight: null,
@@ -254,6 +266,10 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           claudeGoldIdle1Base,
           claudeGoldIdle2Base,
           claudeGoldIdle3Base,
+          claudeGoldSEBase,
+          claudeGoldSWBase,
+          claudeGoldNEBase,
+          claudeGoldNWBase,
           aiSilverIdleBase,
           aiSilverStepLeftBase,
           aiSilverStepRightBase,
@@ -365,6 +381,18 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Promise.resolve(null),
           Promise.resolve(null),
           Promise.resolve(null),
+          Assets.load(
+            "/sprites/characters/AI_GOLD_HELMET/rotations/south-east.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_GOLD_HELMET/rotations/south-west.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_GOLD_HELMET/rotations/north-east.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_GOLD_HELMET/rotations/north-west.png",
+          ).catch(() => null),
           Assets.load("/sprites/characters/AI_SILVER/rotations/south.png").catch(
             () => null,
           ),
@@ -402,6 +430,10 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Promise.resolve(null),
         ])) as [
           Texture,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
           Texture | null,
           Texture | null,
           Texture | null,
@@ -550,6 +582,10 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           assignNearest(claudeGoldIdle2Base),
           assignNearest(claudeGoldIdle3Base),
         ];
+        const claudeGoldSEIdle = assignNearest(claudeGoldSEBase);
+        const claudeGoldSWIdle = assignNearest(claudeGoldSWBase);
+        const claudeGoldNEIdle = assignNearest(claudeGoldNEBase);
+        const claudeGoldNWIdle = assignNearest(claudeGoldNWBase);
         const aiSilverIdle = assignNearest(aiSilverIdleBase);
         const aiSilverStepLeft = assignNearest(aiSilverStepLeftBase);
         const aiSilverStepRight = assignNearest(aiSilverStepRightBase);
@@ -601,6 +637,10 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
             claudeGoldBackStep1,
             claudeGoldBackStep2,
             claudeGoldIdleFrames,
+            claudeGoldSEIdle,
+            claudeGoldSWIdle,
+            claudeGoldNEIdle,
+            claudeGoldNWIdle,
             aiSilverIdle,
             aiSilverStepLeft,
             aiSilverStepRight,

@@ -21,6 +21,10 @@ export enum TileType {
   ELEVATOR = 3, // Conditionally passable (arrivals/departures)
   BOSS_DESK = 4, // Impassable (boss desk)
   AGENT = 5, // Temporary obstacle (other agents)
+  // Layer overrides — NÃO bloqueiam movimento, só afetam o z-order de
+  // sprites de cenário cujo centro cai sobre o tile. Pedro 2026-06-06.
+  ABOVE_PLAYER = 6, // Sprite de cenário sempre na frente do personagem
+  BELOW_PLAYER = 7, // Sprite de cenário sempre atrás do personagem
 }
 
 // Movement costs for different tile types
@@ -31,6 +35,8 @@ export const TILE_COSTS: Record<TileType, number> = {
   [TileType.ELEVATOR]: 1.0, // Passable for arrivals/departures
   [TileType.BOSS_DESK]: Infinity,
   [TileType.AGENT]: 50.0, // High cost to encourage avoidance
+  [TileType.ABOVE_PLAYER]: 1.0, // walkable
+  [TileType.BELOW_PLAYER]: 1.0, // walkable
 };
 
 // Office layout constants (in pixels)
@@ -136,17 +142,14 @@ export class NavigationGrid {
    * Initialize the static obstacle grid from office layout.
    */
   private initializeStaticGrid(): void {
-    // Mark all tiles as floor initially
+    // Mark all tiles as floor initially.
     this.staticGrid.fill(TileType.FLOOR);
 
-    // Mark wall area (top of office)
-    for (let gx = 0; gx < GRID_WIDTH; gx++) {
-      for (let gy = 0; gy < Math.ceil(WALL_Y_END / TILE_SIZE); gy++) {
-        this.setTile(gx, gy, TileType.WALL);
-      }
-    }
+    // Sem colisões hardcoded — só vale o que o usuário pinta via editor.
+    // Pedro 2026-06-06: ele quer poder andar livremente entre mesas e
+    // só ter colisão onde explicitamente pintou wall.
 
-    // Mark elevator as passable (special handling in pathfinding)
+    // Mark elevator as passable (special handling in pathfinding).
     const elevatorStartGx = Math.floor(
       (ELEVATOR_X - ELEVATOR_WIDTH / 2) / TILE_SIZE,
     );
@@ -163,55 +166,6 @@ export class NavigationGrid {
         }
       }
     }
-
-    // Mark desks as obstacles
-    for (let row = 0; row < 2; row++) {
-      const deskY =
-        row === 0
-          ? (DESK_ROW_0_Y + DESK_ROW_0_Y_END) / 2
-          : (DESK_ROW_1_Y + DESK_ROW_1_Y_END) / 2;
-      const deskHalfH =
-        row === 0
-          ? (DESK_ROW_0_Y_END - DESK_ROW_0_Y) / 2
-          : (DESK_ROW_1_Y_END - DESK_ROW_1_Y) / 2;
-
-      for (const deskX of DESK_X_POSITIONS) {
-        this.markRectangle(
-          deskX - DESK_HALF_WIDTH,
-          deskY - deskHalfH,
-          deskX + DESK_HALF_WIDTH,
-          deskY + deskHalfH,
-          TileType.DESK,
-        );
-      }
-    }
-
-    // Mark boss desk as obstacle
-    this.markRectangle(
-      BOSS_DESK_X - BOSS_DESK_HALF_WIDTH,
-      BOSS_DESK_Y - BOSS_DESK_HALF_HEIGHT,
-      BOSS_DESK_X + BOSS_DESK_HALF_WIDTH,
-      BOSS_DESK_Y + BOSS_DESK_HALF_HEIGHT,
-      TileType.BOSS_DESK,
-    );
-
-    // Mark printer station as obstacle
-    this.markRectangle(
-      PRINTER_X - PRINTER_HALF_WIDTH,
-      PRINTER_Y - PRINTER_HALF_HEIGHT,
-      PRINTER_X + PRINTER_HALF_WIDTH,
-      PRINTER_Y + PRINTER_HALF_HEIGHT,
-      TileType.WALL, // Use WALL type for impassable
-    );
-
-    // Mark trash can as obstacle
-    this.markRectangle(
-      TRASH_CAN_X - TRASH_CAN_HALF_WIDTH,
-      TRASH_CAN_Y - TRASH_CAN_HALF_HEIGHT,
-      TRASH_CAN_X + TRASH_CAN_HALF_WIDTH,
-      TRASH_CAN_Y + TRASH_CAN_HALF_HEIGHT,
-      TileType.WALL, // Use WALL type for impassable
-    );
   }
 
   /**
@@ -320,8 +274,37 @@ export class NavigationGrid {
     } else {
       this.overrides[key] = type;
     }
+    // Rastrear o que mudou durante o stroke atual pra fazer batch upload
+    // ao final (Pedro 2026-06-06: persistência migrada pra Supabase via API).
+    if (this.activeStrokeChanges) {
+      this.activeStrokeChanges.set(key, type);
+    }
     saveOverrides(this.overrides);
     this.notifyChange();
+  }
+
+  /** Substitui todos overrides pelo conjunto remoto carregado do backend.
+   *  Diferente de importOverrides, NÃO chama saveOverrides (não precisa
+   *  ecoar pro localStorage — o backend já é fonte de verdade). */
+  replaceAllOverridesFromRemote(remote: OverrideMap): void {
+    this.overrides = { ...remote };
+    saveOverrides(this.overrides);
+    this.notifyChange();
+  }
+
+  /** Retorna 'above', 'below' ou null pro tile em world coords. Usado pelos
+   *  sprites de cenário pra decidir z-order: above → na frente do player,
+   *  below → atrás, null → Y-sort normal. */
+  getLayerOverrideAtWorld(
+    x: number,
+    y: number,
+  ): "above" | "below" | null {
+    const gx = Math.floor(x / TILE_SIZE);
+    const gy = Math.floor(y / TILE_SIZE);
+    const type = this.getStaticTile(gx, gy);
+    if (type === TileType.ABOVE_PLAYER) return "above";
+    if (type === TileType.BELOW_PLAYER) return "below";
+    return null;
   }
 
   /**
@@ -362,6 +345,8 @@ export class NavigationGrid {
       TileType.DESK,
       TileType.ELEVATOR,
       TileType.BOSS_DESK,
+      TileType.ABOVE_PLAYER,
+      TileType.BELOW_PLAYER,
     ]);
     const next: OverrideMap = {};
     for (const [key, value] of Object.entries(snapshot)) {
@@ -404,7 +389,21 @@ export class NavigationGrid {
     if (this.undoStack.length > this.UNDO_LIMIT) {
       this.undoStack.shift();
     }
+    // Inicializa o set de changes pra esse stroke; endStroke retorna esse
+    // map pro caller fazer batch upload pro backend.
+    this.activeStrokeChanges = new Map<string, TileType | null>();
   }
+
+  /** Encerra o stroke ativo e retorna o map de mudanças (key → TileType ou
+   *  null pra eraser) pra que o caller faça batch upload no backend. */
+  endStroke(): Map<string, TileType | null> {
+    const changes = this.activeStrokeChanges ?? new Map();
+    this.activeStrokeChanges = null;
+    return changes;
+  }
+
+  // Set populado durante o stroke (entre beginStroke e endStroke). null = eraser.
+  private activeStrokeChanges: Map<string, TileType | null> | null = null;
 
   /**
    * Revert to the previous snapshot. Returns true if a snapshot was applied.
@@ -436,6 +435,7 @@ export class NavigationGrid {
     ) {
       return false;
     }
+    // ABOVE_PLAYER e BELOW_PLAYER são layer overrides — não bloqueiam.
 
     // Check dynamic obstacles
     for (const [, obstacle] of this.dynamicObstacles) {
@@ -511,7 +511,8 @@ export class NavigationGrid {
 
   /**
    * Get all neighbors of a tile for A* pathfinding.
-   * Supports 8-directional movement.
+   * 4-direction only (cardinals: up/down/left/right) — diagonais desativadas
+   * a pedido do Pedro pra aumentar a chance do path encontrar destino.
    */
   getNeighbors(gx: number, gy: number): GridPosition[] {
     const neighbors: GridPosition[] = [];
@@ -520,10 +521,6 @@ export class NavigationGrid {
       { dx: 1, dy: 0 }, // Right
       { dx: 0, dy: 1 }, // Down
       { dx: -1, dy: 0 }, // Left
-      { dx: 1, dy: -1 }, // Up-Right
-      { dx: 1, dy: 1 }, // Down-Right
-      { dx: -1, dy: 1 }, // Down-Left
-      { dx: -1, dy: -1 }, // Up-Left
     ];
 
     for (const { dx, dy } of directions) {
@@ -531,13 +528,6 @@ export class NavigationGrid {
       const ny = gy + dy;
 
       if (this.isValidTile(nx, ny)) {
-        // For diagonal movement, ensure both adjacent cardinal tiles are walkable
-        // to prevent corner cutting
-        if (dx !== 0 && dy !== 0) {
-          if (!this.isWalkable(gx + dx, gy) || !this.isWalkable(gx, gy + dy)) {
-            continue;
-          }
-        }
         neighbors.push({ gx: nx, gy: ny });
       }
     }
