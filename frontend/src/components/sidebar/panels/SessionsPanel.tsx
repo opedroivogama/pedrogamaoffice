@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
   ChevronDown,
   ChevronRight,
   LayoutGrid,
@@ -24,11 +26,13 @@ import {
   getProjectKey,
   groupSessionsByProject,
   isResumableSession,
+  type SessionSortDirection,
 } from "@/utils/sessionGrouping";
 import { buildFolderChips, filterSessionsByChip } from "@/utils/folderChips";
 import { useSessionsPanelContext } from "./SessionsPanelContext";
 
 const CHIP_STORAGE_KEY = "session.folderFilter.v1";
+const SORT_STORAGE_KEY = "session.sortDirection.v1";
 
 // ============================================================================
 // EDITABLE NAME
@@ -130,15 +134,33 @@ export function SessionsPanel(): React.ReactNode {
   const isPinnedLoaded = usePinnedFoldersStore((s) => s.isLoaded);
   const loadPinned = usePinnedFoldersStore((s) => s.load);
   const [activeChipId, setActiveChipIdState] = useState<string>("all");
+  const [sortDirection, setSortDirectionState] =
+    useState<SessionSortDirection>("desc");
 
   // Hydrate active chip from localStorage on mount.
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(CHIP_STORAGE_KEY);
       if (saved) setActiveChipIdState(saved);
+      const savedSort = window.localStorage.getItem(SORT_STORAGE_KEY);
+      if (savedSort === "asc" || savedSort === "desc") {
+        setSortDirectionState(savedSort);
+      }
     } catch {
       // localStorage may be disabled.
     }
+  }, []);
+
+  const toggleSortDirection = useCallback(() => {
+    setSortDirectionState((prev) => {
+      const next: SessionSortDirection = prev === "desc" ? "asc" : "desc";
+      try {
+        window.localStorage.setItem(SORT_STORAGE_KEY, next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }, []);
 
   // Make sure the pinned-folders store is loaded once so we have its data
@@ -254,7 +276,7 @@ export function SessionsPanel(): React.ReactNode {
     });
   }, []);
 
-  const groups = groupSessionsByProject(filteredSessions);
+  const groups = groupSessionsByProject(filteredSessions, sortDirection);
 
   return (
     <div className="flex flex-col min-h-0 flex-grow">
@@ -265,6 +287,23 @@ export function SessionsPanel(): React.ReactNode {
             : `${filteredSessions.length} de ${sessions.length} sessões`}
         </span>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={toggleSortDirection}
+            className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors"
+            title={
+              sortDirection === "desc"
+                ? "Ordenando: recentes primeiro (clique para inverter)"
+                : "Ordenando: antigas primeiro (clique para inverter)"
+            }
+            aria-label="Alternar ordenação por data"
+          >
+            {sortDirection === "desc" ? (
+              <ArrowDownWideNarrow size={11} />
+            ) : (
+              <ArrowUpWideNarrow size={11} />
+            )}
+          </button>
           <button
             type="button"
             onClick={openBrowser}

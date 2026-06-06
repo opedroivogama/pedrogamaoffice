@@ -46,6 +46,7 @@ from app.core.handlers import (
 from app.core.jsonl_parser import get_last_assistant_response
 from app.core.product_mapper import get_product_mapper
 from app.core.room_orchestrator import RoomOrchestrator
+from app.core.session_name_refresh import refresh_display_name_for_session
 from app.core.state_machine import StateMachine
 from app.core.task_file_poller import init_task_file_poller
 from app.core.task_persistence import load_tasks, save_tasks
@@ -62,6 +63,17 @@ logger = logging.getLogger(__name__)
 
 # Prefixes stripped from paths when deriving display names.
 _DISPLAY_NAME_STRIP_PREFIXES = ("repos", "projects", "src", "work", "code", "github")
+
+# Event types where it's worth rescanning the JSONL for a fresh ai-title /
+# custom-title. Limited to low-frequency moments so the IO stays cheap.
+_RENAME_REFRESH_EVENT_TYPES = frozenset(
+    {
+        EventType.SESSION_START,
+        EventType.STOP,
+        EventType.SUBAGENT_STOP,
+        EventType.TASK_COMPLETED,
+    }
+)
 
 
 def _todos_unchanged(old_todos: list[TodoItem], new_todos: list[TodoItem]) -> bool:
@@ -454,6 +466,27 @@ class EventProcessor:
         # Default state broadcast + history event notification
         # ------------------------------------------------------------------
         await broadcast_state(event.session_id, sm)
+
+        # Pick up `/rename` (custom-title in JSONL) without waiting for the
+        # manual refresh button — rescan this session's transcript on the
+        # event types that follow a typical /rename moment. Broadcast first
+        # so clients refetch BEFORE the event toast is built.
+        if event.event_type in _RENAME_REFRESH_EVENT_TYPES:
+            transcript_path = (
+                event.data.transcript_path if event.data else None
+            )
+            if transcript_path:
+                try:
+                    async with AsyncSessionLocal() as db:
+                        await refresh_display_name_for_session(
+                            db, event.session_id, transcript_path
+                        )
+                except Exception:
+                    logger.exception(
+                        "Display-name refresh failed for session %s",
+                        event.session_id,
+                    )
+
         await broadcast_event(event.session_id, event_dict)
 
         # ------------------------------------------------------------------

@@ -78,8 +78,12 @@ export function useWebSocketEvents({
   // Handle incoming state update
   const handleStateUpdate = useCallback(
     (state: GameState) => {
-      // Ignore state updates from old sessions (race condition protection)
-      if (state.sessionId !== currentSessionIdRef.current) {
+      // Global feed (/ws/all) sempre passa, regardless of session ref.
+      // Antes era um filtro estrito por sessionId — quebrava a agregação.
+      if (
+        state.sessionId !== "all" &&
+        state.sessionId !== currentSessionIdRef.current
+      ) {
         return;
       }
 
@@ -301,11 +305,12 @@ export function useWebSocketEvents({
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
 
-        // Validate session ID for messages that include it (except session_deleted which is global)
+        // Validate session ID for messages that include it (except session_deleted and global feed)
         if (
           message.type !== "session_deleted" &&
           message.type !== "reload" &&
           message.state?.sessionId &&
+          message.state.sessionId !== "all" &&
           message.state.sessionId !== currentSessionIdRef.current
         ) {
           return;
@@ -434,6 +439,7 @@ export function useWebSocketEvents({
                     type: message.event.type as EventType,
                     agentId: message.event.agentId ?? null,
                     agentName: message.event.detail?.agentName ?? null,
+                    sessionId: currentSessionIdRef.current,
                     sessionLabel: currentSessionLabelRef.current,
                     taskDescription:
                       message.event.detail?.taskDescription ?? null,
@@ -472,6 +478,12 @@ export function useWebSocketEvents({
               }),
             );
             break;
+
+          case "sessions_renamed":
+            // Backend escaneou JSONL e detectou title novo (ex: /rename).
+            // Dispara o mesmo refetch que o botão manual usa.
+            window.dispatchEvent(new CustomEvent("sessions-refresh"));
+            break;
         }
       } catch (error) {
         console.error("[WS] Failed to parse message:", error);
@@ -502,7 +514,11 @@ export function useWebSocketEvents({
 
     const wsUrl =
       process.env.NEXT_PUBLIC_WS_URL || `ws://${window.location.hostname}:8000`;
-    const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`);
+    // Sempre conecta no feed global: vê subagentes de TODAS as sessões
+    // Claude Code rodando ao mesmo tempo (terminais, ChatPanel, etc.).
+    // O sessionId continua sendo usado pra outras coisas (display name,
+    // session-specific stores), mas o WS agora é unificado.
+    const ws = new WebSocket(`${wsUrl}/ws/all`);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -572,11 +588,19 @@ export function useWebSocketEvents({
     };
   }, [sessionId, enabled, handleMessage, setConnected, setSessionId]);
 
-  // Effect to manage WebSocket connection
+  // Stabilize connect via ref: a re-rendered `connect` was triggering this
+  // effect to tear down the WS before it finished opening, dropping the
+  // /ws/all subscription and leaving the painel sprite-less. We still want
+  // the latest `connect` to run, but only re-fire the effect when sessionId
+  // or enabled actually change.
+  const connectRef = useRef(connect);
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
   useEffect(() => {
     const isReplaying = useGameStore.getState().isReplaying;
     if (!enabled || !sessionId || isReplaying) {
-      // Disconnect if disabled or in replay mode
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -584,10 +608,9 @@ export function useWebSocketEvents({
       return;
     }
 
-    connect();
+    connectRef.current();
 
     return () => {
-      // Clean up on unmount
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -597,7 +620,7 @@ export function useWebSocketEvents({
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [sessionId, enabled, connect]);
+  }, [sessionId, enabled]);
 }
 
 // ============================================================================

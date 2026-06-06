@@ -11,6 +11,7 @@ import {
 import { useAttentionStore } from "@/stores/attentionStore";
 import { useGameStore } from "@/stores/gameStore";
 import { useTranslation } from "@/hooks/useTranslation";
+import { NotificationsTabs } from "./NotificationsTabs";
 
 /** Simple character-by-character fuzzy match. */
 function fuzzyMatch(query: string, text: string): boolean {
@@ -191,18 +192,20 @@ export default function CommandBar(): ReactNode {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]"
-      onClick={(e) => {
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/70 p-4 pt-16"
+      onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeCommandBar();
       }}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {/* Command palette */}
-      <div className="relative w-full max-w-lg bg-jp-surface-1 border border-neutral-700 rounded-xl shadow-2xl overflow-hidden">
+      {/* Command palette — alinhado visualmente com o ToastHistoryModal pra
+          que a troca de aba pareça acontecer dentro do mesmo modal. */}
+      <div className="w-full max-w-xl max-h-[80vh] flex flex-col rounded-lg border border-jp-gold/40 bg-jp-surface-1 shadow-2xl overflow-hidden">
+        {/* Abas */}
+        <NotificationsTabs active="commands" />
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-jp-divider-soft">
           <span className="text-neutral-500">{"\uD83D\uDD0D"}</span>
           <input
             ref={inputRef}

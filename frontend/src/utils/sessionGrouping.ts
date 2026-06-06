@@ -18,9 +18,13 @@ export function getProjectKey(session: Session): string {
   return "unknown";
 }
 
+export type SessionSortDirection = "desc" | "asc";
+
 export function groupSessionsByProject(
   sessions: Session[],
+  direction: SessionSortDirection = "desc",
 ): Map<string, Session[]> {
+  const sign = direction === "desc" ? 1 : -1;
   const groups = new Map<string, Session[]>();
   for (const s of sessions) {
     const key = getProjectKey(s);
@@ -31,7 +35,9 @@ export function groupSessionsByProject(
     list.sort((a, b) => {
       if (a.status === "active" && b.status !== "active") return -1;
       if (b.status === "active" && a.status !== "active") return 1;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      const delta =
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      return delta * sign;
     });
   }
   const sorted = [...groups.entries()].sort(([, a], [, b]) => {
@@ -39,9 +45,15 @@ export function groupSessionsByProject(
     const bActive = b.some((s) => s.status === "active");
     if (aActive && !bActive) return -1;
     if (bActive && !aActive) return 1;
-    const aNewest = Math.max(...a.map((s) => new Date(s.updatedAt).getTime()));
-    const bNewest = Math.max(...b.map((s) => new Date(s.updatedAt).getTime()));
-    return bNewest - aNewest;
+    const aExtreme =
+      direction === "desc"
+        ? Math.max(...a.map((s) => new Date(s.updatedAt).getTime()))
+        : Math.min(...a.map((s) => new Date(s.updatedAt).getTime()));
+    const bExtreme =
+      direction === "desc"
+        ? Math.max(...b.map((s) => new Date(s.updatedAt).getTime()))
+        : Math.min(...b.map((s) => new Date(s.updatedAt).getTime()));
+    return (bExtreme - aExtreme) * sign;
   });
   return new Map(sorted);
 }

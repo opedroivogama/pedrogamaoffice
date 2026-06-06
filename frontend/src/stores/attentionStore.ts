@@ -14,9 +14,12 @@ export interface AttentionToast {
   id: string;
   agentId: string | null;
   agentName: string | null;
-  /** Display name (ou label, ou ID curto) da sessão de onde o evento veio.
-   *  Mostrado em cinza embaixo do título — ajuda a saber QUAL Claude terminou
-   *  quando há múltiplas sessões rodando. */
+  /** Session ID de onde o evento veio. Usado pelo render do toast pra
+   *  resolver o display name CORRENTE via `sessionNamesStore` — assim um
+   *  `/rename` posterior atualiza o toast sem snapshot velho. */
+  sessionId: string | null;
+  /** Snapshot do display name no momento do evento. Fallback quando o
+   *  store ainda não tem o sessionId (ex: bridge externo). */
   sessionLabel: string | null;
   eventType: EventType;
   urgency: number;
@@ -37,6 +40,11 @@ export interface FocusPopupState {
 interface AttentionState {
   // Toast queue
   toastQueue: AttentionToast[];
+  // Toast history — toasts já passados (vistos ou dispensados). Capado em
+  // TOAST_HISTORY_MAX entradas, ordenado do mais recente pro mais antigo.
+  toastHistory: AttentionToast[];
+  // History modal visibility
+  isHistoryOpen: boolean;
   // Command bar
   isCommandBarOpen: boolean;
   commandFilter: string;
@@ -48,6 +56,7 @@ interface AttentionState {
     type: EventType;
     agentId?: string | null;
     agentName?: string | null;
+    sessionId?: string | null;
     sessionLabel?: string | null;
     taskDescription?: string | null;
     errorType?: string | null;
@@ -55,6 +64,9 @@ interface AttentionState {
   }) => void;
   dismissToast: (id: string) => void;
   clearAllToasts: () => void;
+  openHistory: () => void;
+  closeHistory: () => void;
+  clearHistory: () => void;
   openCommandBar: () => void;
   closeCommandBar: () => void;
   setCommandFilter: (filter: string) => void;
@@ -71,6 +83,7 @@ interface AttentionState {
 // ============================================================================
 
 const MAX_VISIBLE_TOASTS = 5;
+const TOAST_HISTORY_MAX = 200;
 
 /** Map event types to urgency scores and auto-dismiss timing. */
 function scoreEvent(eventType: EventType): {
@@ -120,6 +133,8 @@ function scoreEvent(eventType: EventType): {
 
 export const useAttentionStore = create<AttentionState>()((set, get) => ({
   toastQueue: [],
+  toastHistory: [],
+  isHistoryOpen: false,
   isCommandBarOpen: false,
   commandFilter: "",
   focusPopup: null,
@@ -144,6 +159,7 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       agentId: event.agentId ?? null,
       agentName: event.agentName ?? null,
+      sessionId: event.sessionId ?? null,
       sessionLabel: event.sessionLabel ?? null,
       eventType: event.type,
       urgency,
@@ -170,7 +186,12 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
           toDismiss.dismissed = true;
         }
       }
-      return { toastQueue: queue };
+      // Pré-pendend no histórico (mais recente primeiro), capado.
+      const history = [toast, ...state.toastHistory].slice(
+        0,
+        TOAST_HISTORY_MAX,
+      );
+      return { toastQueue: queue, toastHistory: history };
     });
   },
 
@@ -185,6 +206,10 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
     set((state) => ({
       toastQueue: state.toastQueue.map((t) => ({ ...t, dismissed: true })),
     })),
+
+  openHistory: () => set({ isHistoryOpen: true }),
+  closeHistory: () => set({ isHistoryOpen: false }),
+  clearHistory: () => set({ toastHistory: [] }),
 
   openCommandBar: () => set({ isCommandBarOpen: true, commandFilter: "" }),
   closeCommandBar: () => set({ isCommandBarOpen: false, commandFilter: "" }),

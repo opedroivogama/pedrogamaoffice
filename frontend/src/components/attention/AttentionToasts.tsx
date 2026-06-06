@@ -3,6 +3,7 @@
 import { useEffect, useCallback, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useAttentionStore, type UrgencyLevel } from "@/stores/attentionStore";
+import { useSessionNamesStore } from "@/stores/sessionNamesStore";
 
 const URGENCY_COLORS: Record<UrgencyLevel, string> = {
   critical: "border-red-500 bg-red-950/90 text-red-400",
@@ -60,6 +61,7 @@ function ToastItem({
     id: string;
     urgencyLevel: UrgencyLevel;
     agentName: string | null;
+    sessionId: string | null;
     sessionLabel: string | null;
     title: string;
     description: string;
@@ -71,8 +73,14 @@ function ToastItem({
   const colorClass = URGENCY_COLORS[toast.urgencyLevel];
   const icon = URGENCY_ICONS[toast.urgencyLevel];
   const headline = toast.title;
+  // Resolve nome corrente da sessão pelo store reativo — assim um `/rename`
+  // posterior reflete no toast já renderizado. Fallback pro snapshot.
+  const liveSessionLabel = useSessionNamesStore((s) =>
+    toast.sessionId ? s.names[toast.sessionId] ?? null : null,
+  );
   // Sublinha: prioriza nome do agente, cai pro label da sessão se faltar.
-  const subline = toast.agentName ?? toast.sessionLabel ?? null;
+  const subline =
+    toast.agentName ?? liveSessionLabel ?? toast.sessionLabel ?? null;
 
   useEffect(() => {
     if (toast.autoDismissMs === null) return;

@@ -112,7 +112,9 @@ export interface WebSocketMessage {
     | "reload"
     | "git_status"
     | "session_deleted"
+    | "sessions_renamed"
     | "boss_walk_to";
+  session_ids?: string[];
   timestamp?: string;
   state?: import("./generated").GameState;
   event?: {

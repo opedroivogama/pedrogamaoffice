@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { agentMachineService } from "@/machines/agentMachineService";
 import { useGameStore } from "@/stores/gameStore";
+import { useSessionNamesStore } from "@/stores/sessionNamesStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
   usePreferencesStore,
@@ -86,6 +87,16 @@ export function useSessions(
     const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
   }, [fetchSessions]);
+
+  // Mirror displayName atual de cada sessão na store global pra consumidores
+  // fora do <Page> (ex: AttentionToasts) resolverem nome em tempo de render.
+  useEffect(() => {
+    const entries: Record<string, string> = {};
+    for (const s of sessions) {
+      entries[s.id] = s.displayName ?? s.label ?? s.id.slice(0, 8);
+    }
+    useSessionNamesStore.getState().setNames(entries);
+  }, [sessions]);
 
   // Listen for session deletion events from WebSocket
   useEffect(() => {
