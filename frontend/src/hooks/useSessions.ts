@@ -28,6 +28,7 @@ export interface Session {
   roomId: string | null;
   isPinned: boolean;
   archivedAt: string | null;
+  awaitingInput: boolean;
 }
 
 // ============================================================================

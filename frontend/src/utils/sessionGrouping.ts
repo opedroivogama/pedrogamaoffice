@@ -61,6 +61,7 @@ export function groupSessionsByProject(
 // ─── Sidebar 2.0 — agrupamento por bucket temporal ─────────────────────────
 
 export type SessionBucketKey =
+  | "awaiting"
   | "pinned"
   | "active"
   | "today"
@@ -72,9 +73,17 @@ export interface SessionBucketMeta {
   label: string;
   icon: string;
   collapsedByDefault: boolean;
+  highlight?: "urgent";
 }
 
 export const SESSION_BUCKETS: readonly SessionBucketMeta[] = [
+  {
+    key: "awaiting",
+    label: "Te esperando",
+    icon: "🔔",
+    collapsedByDefault: false,
+    highlight: "urgent",
+  },
   { key: "pinned", label: "Fixadas", icon: "📌", collapsedByDefault: false },
   { key: "active", label: "Ativas agora", icon: "🟢", collapsedByDefault: false },
   { key: "today", label: "Hoje", icon: "🕐", collapsedByDefault: false },
@@ -90,8 +99,10 @@ export const SESSION_BUCKETS: readonly SessionBucketMeta[] = [
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function bucketForSession(s: Session, now: number): SessionBucketKey {
-  // Priority: pinned > active > time-based. A session falls into exactly
-  // one bucket so it never duplicates in the sidebar.
+  // Priority: awaiting > pinned > active > time-based. A session falls into
+  // exactly one bucket so it never duplicates in the sidebar. Awaiting wins
+  // even over pinned because urgency > organization.
+  if (s.awaitingInput) return "awaiting";
   if (s.isPinned) return "pinned";
   if (s.status === "active") return "active";
   const updated = new Date(s.updatedAt).getTime();

@@ -462,12 +462,17 @@ export function SessionsPanel(): React.ReactNode {
                 0,
               );
 
+              const isUrgent = bucketMeta.highlight === "urgent";
               return (
                 <div key={bucketMeta.key} className="flex flex-col">
                   <button
                     type="button"
                     onClick={() => toggleBucket(bucketMeta.key)}
-                    className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-jp-fg-dim hover:text-jp-gold transition-colors"
+                    className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                      isUrgent
+                        ? "text-amber-300 hover:text-amber-200 animate-pulse"
+                        : "text-jp-fg-dim hover:text-jp-gold"
+                    }`}
                   >
                     {isBucketCollapsed ? (
                       <ChevronRight size={10} />

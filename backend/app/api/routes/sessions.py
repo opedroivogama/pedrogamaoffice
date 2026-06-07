@@ -66,6 +66,14 @@ class SessionSummary(TypedDict):
     roomId: str | None
     isPinned: bool
     archivedAt: str | None
+    awaitingInput: bool
+
+
+# Event types that mean Claude Code is waiting for the user to respond.
+# "notification" = Claude needs input (e.g. permission request, ai-driven
+# clarification). "waiting" = generic waiting state. Once any other event
+# follows, the session is no longer awaiting input.
+_AWAITING_EVENT_TYPES: frozenset[str] = frozenset({"notification", "waiting"})
 
 
 class ReplayEvent(TypedDict):
@@ -124,12 +132,33 @@ async def list_sessions(
             .subquery()
         )
 
+        # Last event_type per session via window function. Used to mark
+        # sessions whose latest event is "notification" or "waiting" as
+        # awaiting user input.
+        ranked_events = select(
+            EventRecord.session_id,
+            EventRecord.event_type,
+            func.row_number()
+            .over(
+                partition_by=EventRecord.session_id,
+                order_by=EventRecord.timestamp.desc(),
+            )
+            .label("rn"),
+        ).subquery()
+        last_event_subq = (
+            select(ranked_events.c.session_id, ranked_events.c.event_type)
+            .where(ranked_events.c.rn == 1)
+            .subquery()
+        )
+
         stmt = (
             select(
                 SessionRecord,
                 func.coalesce(event_count_subq.c.event_count, 0).label("event_count"),
+                last_event_subq.c.event_type.label("last_event_type"),
             )
             .outerjoin(event_count_subq, SessionRecord.id == event_count_subq.c.session_id)
+            .outerjoin(last_event_subq, SessionRecord.id == last_event_subq.c.session_id)
             .order_by(SessionRecord.updated_at.desc())
         )
 
@@ -161,6 +190,7 @@ async def list_sessions(
         for row in rows:
             rec = row[0]
             count = int(row[1])
+            last_event_type = row[2]
 
             # Skip child sessions (no session_start event) unless it's the special
             # simulation session which also lacks one but is always valid.
@@ -202,6 +232,7 @@ async def list_sessions(
                     "roomId": rec.room_id,
                     "isPinned": rec.is_pinned,
                     "archivedAt": archived_at_str,
+                    "awaitingInput": last_event_type in _AWAITING_EVENT_TYPES,
                 }
             )
         return sessions
