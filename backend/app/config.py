@@ -53,6 +53,15 @@ class Settings(BaseSettings):
         "SLqDLs4Ba-P0HekzjeetPUYMVZfWOavJxEz4DC4zOOE"
     )
 
+    # One-way sync do SQLite local pro schema escritorio_online no Supabase.
+    # SQLite continua autoritativo; Supabase é cópia/backup pra outras máquinas.
+    # Schema "escritorio_online" porque é o único exposto no PostgREST self-hosted
+    # (PGRST_DB_SCHEMAS). Schema "escritorio_digital" (não-exposto) também existe
+    # vazio, pode ser dropado quando Pedro confirmar.
+    SUPABASE_SYNC_ENABLED: bool = True
+    SUPABASE_SYNC_SCHEMA: str = "escritorio_online"
+    SUPABASE_SYNC_INTERVAL_SECONDS: int = 300
+
     model_config = SettingsConfigDict(env_file=".env")
 
     def translate_path(self, path: str) -> str:

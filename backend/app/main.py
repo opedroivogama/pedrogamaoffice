@@ -156,11 +156,18 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     refresh_names_task = asyncio.create_task(_refresh_display_names_loop())
 
+    from app.services.supabase_sync import run_sync_loop as _supabase_sync_loop
+
+    supabase_sync_task = asyncio.create_task(_supabase_sync_loop())
+
     yield
 
     refresh_names_task.cancel()
+    supabase_sync_task.cancel()
     with suppress(asyncio.CancelledError):
         await refresh_names_task
+    with suppress(asyncio.CancelledError):
+        await supabase_sync_task
 
     await git_service.stop()
     await get_engine().dispose()
