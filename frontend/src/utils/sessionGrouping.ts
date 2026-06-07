@@ -57,3 +57,75 @@ export function groupSessionsByProject(
   });
   return new Map(sorted);
 }
+
+// ─── Sidebar 2.0 — agrupamento por bucket temporal ─────────────────────────
+
+export type SessionBucketKey =
+  | "pinned"
+  | "active"
+  | "today"
+  | "thisWeek"
+  | "older";
+
+export interface SessionBucketMeta {
+  key: SessionBucketKey;
+  label: string;
+  icon: string;
+  collapsedByDefault: boolean;
+}
+
+export const SESSION_BUCKETS: readonly SessionBucketMeta[] = [
+  { key: "pinned", label: "Fixadas", icon: "📌", collapsedByDefault: false },
+  { key: "active", label: "Ativas agora", icon: "🟢", collapsedByDefault: false },
+  { key: "today", label: "Hoje", icon: "🕐", collapsedByDefault: false },
+  {
+    key: "thisWeek",
+    label: "Esta semana",
+    icon: "📅",
+    collapsedByDefault: false,
+  },
+  { key: "older", label: "Anteriores", icon: "📦", collapsedByDefault: true },
+] as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function bucketForSession(s: Session, now: number): SessionBucketKey {
+  // Priority: pinned > active > time-based. A session falls into exactly
+  // one bucket so it never duplicates in the sidebar.
+  if (s.isPinned) return "pinned";
+  if (s.status === "active") return "active";
+  const updated = new Date(s.updatedAt).getTime();
+  const age = now - updated;
+  if (age < DAY_MS) return "today";
+  if (age < 7 * DAY_MS) return "thisWeek";
+  return "older";
+}
+
+/**
+ * Group sessions into time/state buckets (Fixadas / Ativas / Hoje / Semana /
+ * Anteriores). Inside each bucket, sessions are sub-grouped by project, so
+ * the existing project-header UI in SessionsPanel keeps working.
+ *
+ * Returns a Map preserving bucket order from SESSION_BUCKETS. Empty buckets
+ * are omitted.
+ */
+export function groupSessionsByTimeBuckets(
+  sessions: Session[],
+  direction: SessionSortDirection = "desc",
+): Map<SessionBucketKey, Map<string, Session[]>> {
+  const now = Date.now();
+  const byBucket = new Map<SessionBucketKey, Session[]>();
+  for (const s of sessions) {
+    const bucket = bucketForSession(s, now);
+    if (!byBucket.has(bucket)) byBucket.set(bucket, []);
+    byBucket.get(bucket)!.push(s);
+  }
+
+  const result = new Map<SessionBucketKey, Map<string, Session[]>>();
+  for (const meta of SESSION_BUCKETS) {
+    const bucketSessions = byBucket.get(meta.key);
+    if (!bucketSessions || bucketSessions.length === 0) continue;
+    result.set(meta.key, groupSessionsByProject(bucketSessions, direction));
+  }
+  return result;
+}

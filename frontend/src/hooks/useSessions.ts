@@ -26,6 +26,8 @@ export interface Session {
   eventCount: number;
   floorId: string | null;
   roomId: string | null;
+  isPinned: boolean;
+  archivedAt: string | null;
 }
 
 // ============================================================================

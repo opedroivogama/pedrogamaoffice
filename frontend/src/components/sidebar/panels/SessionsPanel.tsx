@@ -1,12 +1,16 @@
 "use client";
 
 import {
+  Archive,
+  ArchiveRestore,
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   ChevronDown,
   ChevronRight,
   LayoutGrid,
   Monitor,
+  Pin,
+  PinOff,
   Play,
   PlayCircle,
   Radio,
@@ -24,8 +28,10 @@ import { useSessionsBrowserStore } from "@/stores/sessionsBrowserStore";
 import { usePinnedFoldersStore } from "@/stores/pinnedFoldersStore";
 import {
   getProjectKey,
-  groupSessionsByProject,
+  groupSessionsByTimeBuckets,
   isResumableSession,
+  SESSION_BUCKETS,
+  type SessionBucketKey,
   type SessionSortDirection,
 } from "@/utils/sessionGrouping";
 import { buildFolderChips, filterSessionsByChip } from "@/utils/folderChips";
@@ -33,6 +39,7 @@ import { useSessionsPanelContext } from "./SessionsPanelContext";
 
 const CHIP_STORAGE_KEY = "session.folderFilter.v1";
 const SORT_STORAGE_KEY = "session.sortDirection.v1";
+const COLLAPSED_BUCKETS_STORAGE_KEY = "session.collapsedBuckets.v1";
 
 // ============================================================================
 // EDITABLE NAME
@@ -129,6 +136,12 @@ export function SessionsPanel(): React.ReactNode {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const lastAutoExpandedSessionRef = useRef<string | null>(null);
 
+  // Bucket collapse state — default-collapsed buckets (e.g. "Anteriores")
+  // start in the set; user toggles persist to localStorage.
+  const [collapsedBuckets, setCollapsedBuckets] = useState<Set<SessionBucketKey>>(
+    () => new Set(SESSION_BUCKETS.filter((b) => b.collapsedByDefault).map((b) => b.key)),
+  );
+
   // Folder filter state — chip ID is persisted to survive reloads.
   const pinnedFolders = usePinnedFoldersStore((s) => s.folders);
   const isPinnedLoaded = usePinnedFoldersStore((s) => s.isLoaded);
@@ -146,9 +159,36 @@ export function SessionsPanel(): React.ReactNode {
       if (savedSort === "asc" || savedSort === "desc") {
         setSortDirectionState(savedSort);
       }
+      const savedCollapsed = window.localStorage.getItem(
+        COLLAPSED_BUCKETS_STORAGE_KEY,
+      );
+      if (savedCollapsed) {
+        const parsed = JSON.parse(savedCollapsed) as string[];
+        const validKeys = new Set(SESSION_BUCKETS.map((b) => b.key));
+        setCollapsedBuckets(
+          new Set(parsed.filter((k): k is SessionBucketKey => validKeys.has(k as SessionBucketKey))),
+        );
+      }
     } catch {
       // localStorage may be disabled.
     }
+  }, []);
+
+  const toggleBucket = useCallback((key: SessionBucketKey) => {
+    setCollapsedBuckets((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        window.localStorage.setItem(
+          COLLAPSED_BUCKETS_STORAGE_KEY,
+          JSON.stringify([...next]),
+        );
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }, []);
 
   const toggleSortDirection = useCallback(() => {
@@ -267,6 +307,28 @@ export function SessionsPanel(): React.ReactNode {
     }
   }, []);
 
+  const handleTogglePin = useCallback(async (id: string) => {
+    try {
+      await fetch(`http://localhost:8000/api/v1/sessions/${id}/pin`, {
+        method: "POST",
+      });
+      window.dispatchEvent(new CustomEvent("sessions-refresh"));
+    } catch {
+      // Silent — 5s poll will catch up.
+    }
+  }, []);
+
+  const handleToggleArchive = useCallback(async (id: string) => {
+    try {
+      await fetch(`http://localhost:8000/api/v1/sessions/${id}/archive`, {
+        method: "POST",
+      });
+      window.dispatchEvent(new CustomEvent("sessions-refresh"));
+    } catch {
+      // Silent — 5s poll will catch up.
+    }
+  }, []);
+
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -276,7 +338,7 @@ export function SessionsPanel(): React.ReactNode {
     });
   }, []);
 
-  const groups = groupSessionsByProject(filteredSessions, sortDirection);
+  const buckets = groupSessionsByTimeBuckets(filteredSessions, sortDirection);
 
   return (
     <div className="flex flex-col min-h-0 flex-grow">
@@ -391,17 +453,48 @@ export function SessionsPanel(): React.ReactNode {
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            {[...groups.entries()].map(([projectKey, groupSessions]) => {
-              const hasActive = groupSessions.some(
-                (s) => s.status === "active",
+          <div className="flex flex-col gap-2">
+            {SESSION_BUCKETS.filter((b) => buckets.has(b.key)).map((bucketMeta) => {
+              const bucketGroups = buckets.get(bucketMeta.key)!;
+              const isBucketCollapsed = collapsedBuckets.has(bucketMeta.key);
+              const bucketSessionCount = [...bucketGroups.values()].reduce(
+                (sum, list) => sum + list.length,
+                0,
               );
-              const isExpanded = expandedGroups.has(projectKey);
-              const primary = groupSessions[0];
-              const rest = groupSessions.slice(1);
 
               return (
-                <div key={projectKey} className="flex flex-col">
+                <div key={bucketMeta.key} className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => toggleBucket(bucketMeta.key)}
+                    className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-jp-fg-dim hover:text-jp-gold transition-colors"
+                  >
+                    {isBucketCollapsed ? (
+                      <ChevronRight size={10} />
+                    ) : (
+                      <ChevronDown size={10} />
+                    )}
+                    <span>{bucketMeta.icon}</span>
+                    <span>{bucketMeta.label}</span>
+                    <span className="text-jp-fg-dim/60 font-mono normal-case font-normal">
+                      {bucketSessionCount}
+                    </span>
+                  </button>
+
+                  {!isBucketCollapsed && (
+                    <div className="flex flex-col gap-1">
+                      {[...bucketGroups.entries()].map(([projectKey, groupSessions]) => {
+                        const hasActive = groupSessions.some(
+                          (s) => s.status === "active",
+                        );
+                        const isExpanded = expandedGroups.has(
+                          `${bucketMeta.key}::${projectKey}`,
+                        );
+                        const primary = groupSessions[0];
+                        const rest = groupSessions.slice(1);
+
+                        return (
+                <div key={`${bucketMeta.key}::${projectKey}`} className="flex flex-col">
                   <div
                     role="button"
                     tabIndex={0}
@@ -490,6 +583,50 @@ export function SessionsPanel(): React.ReactNode {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          void handleTogglePin(primary.id);
+                        }}
+                        className={`p-1 hover:bg-jp-surface-2 rounded transition-colors ${
+                          primary.isPinned
+                            ? "text-jp-gold opacity-100"
+                            : "text-jp-fg-dim hover:text-jp-gold opacity-0 group-hover:opacity-100"
+                        }`}
+                        title={primary.isPinned ? "Desafixar" : "Fixar"}
+                        aria-label={
+                          primary.isPinned
+                            ? `Desafixar ${primary.id}`
+                            : `Fixar ${primary.id}`
+                        }
+                      >
+                        {primary.isPinned ? (
+                          <PinOff size={12} />
+                        ) : (
+                          <Pin size={12} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleToggleArchive(primary.id);
+                        }}
+                        className="p-1 text-jp-fg-dim hover:text-sky-400 hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        title={primary.archivedAt ? "Desarquivar" : "Arquivar"}
+                        aria-label={
+                          primary.archivedAt
+                            ? `Desarquivar ${primary.id}`
+                            : `Arquivar ${primary.id}`
+                        }
+                      >
+                        {primary.archivedAt ? (
+                          <ArchiveRestore size={12} />
+                        ) : (
+                          <Archive size={12} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           onDeleteSession(primary);
                         }}
                         className="p-1 text-jp-fg-dim hover:text-rose-400 hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
@@ -518,7 +655,7 @@ export function SessionsPanel(): React.ReactNode {
                     <>
                       <button
                         type="button"
-                        onClick={() => toggleGroup(projectKey)}
+                        onClick={() => toggleGroup(`${bucketMeta.key}::${projectKey}`)}
                         className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-jp-fg-dim hover:text-jp-fg-muted font-mono transition-colors"
                       >
                         {isExpanded ? (
@@ -612,6 +749,52 @@ export function SessionsPanel(): React.ReactNode {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  void handleTogglePin(session.id);
+                                }}
+                                className={`p-0.5 hover:bg-jp-surface-2 rounded transition-colors ${
+                                  session.isPinned
+                                    ? "text-jp-gold opacity-100"
+                                    : "text-jp-fg-dim hover:text-jp-gold opacity-0 group-hover:opacity-100"
+                                }`}
+                                title={session.isPinned ? "Desafixar" : "Fixar"}
+                                aria-label={
+                                  session.isPinned
+                                    ? `Desafixar ${session.id}`
+                                    : `Fixar ${session.id}`
+                                }
+                              >
+                                {session.isPinned ? (
+                                  <PinOff size={10} />
+                                ) : (
+                                  <Pin size={10} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleToggleArchive(session.id);
+                                }}
+                                className="p-0.5 text-jp-fg-dim hover:text-sky-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                title={
+                                  session.archivedAt ? "Desarquivar" : "Arquivar"
+                                }
+                                aria-label={
+                                  session.archivedAt
+                                    ? `Desarquivar ${session.id}`
+                                    : `Arquivar ${session.id}`
+                                }
+                              >
+                                {session.archivedAt ? (
+                                  <ArchiveRestore size={10} />
+                                ) : (
+                                  <Archive size={10} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   onDeleteSession(session);
                                 }}
                                 className="p-0.5 text-jp-fg-dim hover:text-rose-400 rounded transition-colors opacity-0 group-hover:opacity-100"
@@ -623,6 +806,11 @@ export function SessionsPanel(): React.ReactNode {
                           </div>
                         ))}
                     </>
+                  )}
+                </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               );
