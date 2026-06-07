@@ -348,10 +348,15 @@ function PlumbobOverlay(): ReactNode {
     if (bossChair) {
       x = bossChair.x;
       y = bossChair.deskTopY;
-      // Calcado no BossSprite: topo do crânio sentado ≈ parent.y=-24 +
-      // hideOffset - renderSize*(1-topPad) com renderSize=282, hide=0.42,
-      // topPad=58/248 → ≈ -122. Plumbob 12px acima = -134.
-      plumbobY = -134;
+      // PlumbobOverlay está em (chair.x, chair.deskTopY=930) e o BossSprite
+      // root está em BOSS_POSITION=(640, 900) → diferença vertical de 30px
+      // entre os dois containers. A badge "Claudius" sentada no BossSprite
+      // renderiza em y_badge ≈ -114 (relativo ao BossSprite root) com pill
+      // de altura 22. No canvas: badge_top ≈ 775. Pra plumbob (altura 22)
+      // ficar com folga de 8px acima da badge: canvas_y ≈ 745 → plumbobY =
+      // 745 - 930 = -185. (Pedro 2026-06-07: plumbob deve sempre ficar
+      // acima da badge de nome.)
+      plumbobY = -185;
     } else {
       x = bossPos.x;
       y = bossPos.y;
@@ -1641,17 +1646,16 @@ export function OfficeGame(): ReactNode {
   // SÓ pra essas mesas, garantindo que o tampo cubra o personagem sentado
   // sem afetar mesas vazias. Pedro 2026-06-07.
   const entitySeatsForDeskTop = useGameStore((s) => s.entitySeats);
-  const occupiedDeskKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const c of entitySeatsForDeskTop.values()) {
-      keys.add(`${c.x}|${Math.round(c.deskTopY)}`);
-    }
-    return keys;
-  }, [entitySeatsForDeskTop]);
+  const seatedChairList = useMemo(
+    () => [...entitySeatsForDeskTop.values()],
+    [entitySeatsForDeskTop],
+  );
   const isDeskOccupied = useCallback(
     (desk: { x: number; y: number }) =>
-      occupiedDeskKeys.has(`${desk.x}|${Math.round(desk.y + 6)}`),
-    [occupiedDeskKeys],
+      seatedChairList.some(
+        (c) => Math.abs(c.x - desk.x) < 4 && Math.abs(c.y - desk.y) < 50,
+      ),
+    [seatedChairList],
   );
 
   // Split da textura da mesa em "top fatia" (só o tampo) + "bottom"
