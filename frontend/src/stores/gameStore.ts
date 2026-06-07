@@ -501,10 +501,11 @@ const initialState = {
     // Claudius sentado na mesa dele por padrão (Pedro 2026-06-06). Só sai
     // quando o Pedro remove manualmente (clique no Claudius pra levantar).
     ["boss", { x: 460, y: 900, deskTopY: 930 }],
-    // Pedro Samurai sentado na cadeira dele ao carregar (Pedro 2026-06-07).
-    // CHAIRS[9] em src/constants/chairs.ts. Sair só ao apertar WASD ou
-    // clicar em outro lugar — usePlayerControl limpa o seat (commit e541a08).
-    ["pedro-samurai", { x: 820, y: 880, deskTopY: 910 }],
+    // Pedro Samurai NÃO entra aqui no estado inicial — o seat default dele
+    // é aplicado em page.tsx via useEffect depois que userAvatarsHydrated
+    // vira true (mesmo fluxo do click manual). Inicializar pela store no
+    // mount brigou com timing das texturas direcionais → sprite renderizava
+    // quebrado/desalinhado. Visto em 2026-06-07.
   ]),
   bossWalkTarget: null as Position | null,
   userAvatarPositions: new Map<string, Position>([

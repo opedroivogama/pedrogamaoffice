@@ -284,6 +284,24 @@ export default function V2TestPage(): React.ReactNode {
     void loadUserAvatarPositions();
   }, [loadUserAvatarPositions]);
 
+  // Pedro Samurai começa sentado na cadeira dele toda vez que o painel
+  // carrega (pedido do Pedro 2026-06-07). Mesmo fluxo do click manual —
+  // snap position + setEntitySeated — disparado depois de userAvatarsHydrated
+  // pra esperar texturas direcionais. Sem isso, o sprite renderizava
+  // quebrado quando o seat era setado no estado inicial do store.
+  const userAvatarsHydrated = useGameStore((s) => s.userAvatarsHydrated);
+  const setUserAvatarPosition = useGameStore((s) => s.setUserAvatarPosition);
+  const setEntitySeated = useGameStore((s) => s.setEntitySeated);
+  useEffect(() => {
+    if (!userAvatarsHydrated) return;
+    setUserAvatarPosition("pedro-samurai", { x: 820, y: 880 });
+    setEntitySeated("pedro-samurai", {
+      x: 820,
+      y: 880,
+      deskTopY: 910,
+    });
+  }, [userAvatarsHydrated, setUserAvatarPosition, setEntitySeated]);
+
   useEffect(() => {
     loadPreferences();
   }, [loadPreferences]);
