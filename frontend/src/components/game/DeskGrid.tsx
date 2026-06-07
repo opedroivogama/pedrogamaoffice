@@ -215,6 +215,10 @@ interface DeskSurfacesTopProps {
   thermosTexture: Texture | null;
   blueMugTexture: Texture | null;
   blackMugTexture: Texture | null;
+  /** Quando true pra uma mesa, eleva o zIndex do container pra ficar
+   *  acima do tampo boosted (caso ocupado). Sem isso, o DeskMarquee
+   *  (task) e a caneca somem atrás do tampo. Pedro 2026-06-07. */
+  isDeskOccupied?: (desk: { x: number; y: number }) => boolean;
 }
 
 /**
@@ -235,17 +239,20 @@ export function DeskSurfacesTop({
   thermosTexture,
   blueMugTexture,
   blackMugTexture,
+  isDeskOccupied,
 }: DeskSurfacesTopProps): ReactNode {
   const desks = useDeskPositions(deskCount, occupiedDesks);
 
   return (
     <>
-      {desks.map((desk, i) => (
-        // zIndex = desk.y + 80 (mesmo da mesa). Compete com personagens no
-        // Y-sort: foot.y maior → personagem cobre; foot.y menor → personagem
-        // coberto. Pedro 2026-06-06: regra precisa valer pra todos (Pedro,
-        // gestor, Claudius, agents).
-        <pixiContainer key={i} x={desk.x} y={desk.y} zIndex={desk.y + 80}>
+      {desks.map((desk, i) => {
+        const occupied = isDeskOccupied?.(desk) ?? false;
+        // Mesa vazia: zIndex = desk.y + 80 (regra antiga, Y-sort com
+        // personagens em pé). Ocupada: 999100 — acima do tampo boost
+        // (999000) pra task/caneca ficarem visíveis. Pedro 2026-06-07.
+        const z = occupied ? 999_100 : desk.y + 80;
+        return (
+        <pixiContainer key={i} x={desk.x} y={desk.y} zIndex={z}>
           {/* Monitor + glow LCD - DESABILITADO (Pedro pediu sala sem computador,
               2026-06-04). Pra reativar, troca `false &&` por só `monitorTexture &&`. */}
           {false && monitorTexture && (
@@ -317,7 +324,8 @@ export function DeskSurfacesTop({
           {/* Task marquee on desk surface - only for occupied desks */}
           <DeskMarquee text={deskTasks.get(i + 1) ?? ""} />
         </pixiContainer>
-      ))}
+        );
+      })}
     </>
   );
 }

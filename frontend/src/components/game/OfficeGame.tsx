@@ -377,11 +377,21 @@ function PlumbobOverlay(): ReactNode {
       // -11 acompanha o ajuste do anchor do sprite sentado (alinhamento
       // com topo do tampo, Pedro 2026-06-07).
       y = chair.deskTopY - 11;
-      plumbobY = -179;
+      // -133 calcado pra Pedro Samurai (size=282, topPad=63/248):
+      // crânio em container_y = 282*(63/248-0.58) ≈ -92
+      // badge center em -92-4 = -96 (pill h=22, top edge ≈ -107)
+      // plumbob bottom = y+22 deve ficar 4px acima da badge top
+      // → y = -107 - 4 - 22 = -133. (Pedro 2026-06-07 — fórmula corrigida.)
+      plumbobY = -133;
     } else {
       x = userPos.x;
       y = userPos.y;
-      plumbobY = -270; // acima da cabeça do UserAvatar (size≈256-282)
+      // Pedro Samurai em pé (size=282, topPad=63/248):
+      // crânio em container_y = -282*(1-63/248) ≈ -210
+      // badge center em -210-4 = -214 (top edge ≈ -225)
+      // plumbob bottom em -225-4 = -229; plumbob_y = -251.
+      // (Pedro 2026-06-07 — consistente com badge sentado a 4px do crânio.)
+      plumbobY = -251;
     }
   } else if (agent) {
     x = agent.currentPosition.x;
@@ -838,11 +848,15 @@ function UserAvatar({
           width={size}
           height={seatedRenderH}
         />
-        {/* Label sits just above the visible head — 8px acima do crânio
-            sentado (sprite cropped pra SEATED_CROP_RATIO). */}
+        {/* Label sits just above the visible head — 4px acima do crânio
+            sentado. Fórmula corrigida em 2026-06-07: topo do crânio em
+            container coords = size*(topPaddingRatio - SEATED_CROP_RATIO).
+            A fórmula anterior `size*SEATED_CROP_RATIO*(1-topPaddingRatio)`
+            tratava o padding como se fosse fora do crop e jogava a badge
+            longe demais (~33px acima do crânio real). */}
         {renderLabel && (
           <pixiContainer
-            y={-(size * SEATED_CROP_RATIO * (1 - topPaddingRatio) + 8)}
+            y={size * (topPaddingRatio - SEATED_CROP_RATIO) - 4}
           >
             <pixiGraphics
               draw={(g) => {
@@ -954,7 +968,7 @@ const USER_AVATAR_LABEL_CONFIGS: Array<{
   size: number;
   topPaddingRatio: number;
 }> = [
-  { id: "pedro-samurai", label: "Pedro", size: 282, topPaddingRatio: 58 / 248 },
+  { id: "pedro-samurai", label: "Pedro", size: 282, topPaddingRatio: 63 / 248 },
 ];
 
 /**
@@ -974,17 +988,22 @@ function UserAvatarLabelsLayer(): ReactNode {
         let labelX: number;
         let labelY: number;
         if (chair) {
-          // 8px acima do topo real do crânio sentado. -11 acompanha o
-          // ajuste do anchor do sprite sentado (alinhamento com topo do
-          // tampo, Pedro 2026-06-07).
+          // 4px acima do topo real do crânio sentado. -11 acompanha o
+          // ajuste do anchor do sprite sentado. Fórmula corrigida Pedro
+          // 2026-06-07: topo do crânio sentado em container coords =
+          // size*(topPaddingRatio - SEATED_CROP_RATIO). A fórmula anterior
+          // `size*SEATED_CROP_RATIO*(1-topPaddingRatio)` jogava badge ~33px
+          // acima do crânio real.
           labelX = chair.x;
           labelY =
             chair.deskTopY -
-            11 -
-            (cfg.size * SEATED_CROP_RATIO * (1 - cfg.topPaddingRatio) + 8);
+            11 +
+            cfg.size * (cfg.topPaddingRatio - SEATED_CROP_RATIO) -
+            4;
         } else {
+          // 4px acima do topo do crânio em pé.
           labelX = pos.x;
-          labelY = pos.y - (cfg.size * (1 - cfg.topPaddingRatio) + 8);
+          labelY = pos.y - (cfg.size * (1 - cfg.topPaddingRatio) + 4);
         }
         const pillW = Math.max(56, cfg.label.length * 11 + 20);
         const pillH = 22;
@@ -2176,7 +2195,7 @@ export function OfficeGame(): ReactNode {
                       phase={2.9}
                       waist={85}
                       size={282}
-                      topPaddingRatio={58 / 248}
+                      topPaddingRatio={63 / 248}
                       directionalTextures={samuraiIdleFrames}
                       walkFrames={samuraiWalkFrames}
                       renderBubble={false}
@@ -2204,6 +2223,7 @@ export function OfficeGame(): ReactNode {
                       thermosTexture={textures.thermos}
                       blueMugTexture={textures.blueMug}
                       blackMugTexture={textures.blackMug}
+                      isDeskOccupied={isDeskOccupied}
                     />
 
                     {/* BossSprite (Claudius sentado) DENTRO do Y-sort. zIndex
