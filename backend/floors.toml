@@ -1,30 +1,121 @@
 building_name = "Escritório Digital — Pedro Gama"
 
-# Reset 2026-06-07: voltamos pra UM andar único.
+# Reestruturação 2026-06-07: 4 andares de trabalho + 1 cobertura.
 #
-# Operacional é o andar onde aparece tudo que o Claude Code está executando
-# agora — sessões reais via hooks. É o que a fork upstream sempre soube fazer
-# bem. Tudo que era placeholder/decorativo foi removido.
+# Modelo decidido pelo Pedro: vida dividida em 2 dimensões (Empresa, Pessoal)
+# × 2 modos (Planejamento, Execução) = 4 andares de trabalho. A Cobertura
+# (andar 5) é uma VIEW agregada que mostra atividade dos 4 abaixo — não
+# recebe sessão própria (`repos = []`).
 #
-# Convenção de source_id (campo `repos`): aceita o basename do dir (com
-# espaço ou kebab) e a forma "C--Users-..." que o hook Claude Code costuma
-# emitir.  Múltiplas variantes ficam aqui pra cobrir as diferentes formas que
-# o hook pode normalizar o nome.
+# Convenção de `repos`: aceita basename do dir (com espaço ou kebab) e a
+# forma encoded "C--Users-..." que o hook do Claude Code emite. Variantes
+# múltiplas cobrem as diferentes formas que o hook pode normalizar.
 #
-# Próximos andares (Comercial, Clientes, Diretoria, Mídia Paga, etc.) voltam
-# UM POR VEZ, quando o bridge correspondente estiver produzindo eventos de
-# verdade — não como casca vazia. Os scripts em `scripts/bridges/` ficam
-# preservados pra reativação.
+# Pastas Pessoal/PLAN e Pessoal/EXEC ainda serão criadas no Desktop —
+# variantes esperadas já listadas pra quando o Pedro abrir Claude Code lá.
 
+# ─── Andar 1 — JP-Plan ────────────────────────────────────────────────────
+# Estratégia, novos processos, OKRs, diretrizes, atas, decisões de produto.
+# "Vou pensar onde a empresa vai."
 [[floors]]
-name = "Operacional"
-floor_number = 5
+name = "JP-Plan"
+floor_number = 1
 accent = "#B8972A"  # JP Gold Primary
-icon = "💻"
+icon = "🧠"
 repos = [
-  "escritorio online",                                          # basename real do dir com .git
-  "escritorio-online",                                          # variante kebab
-  "C--Users-Pedro-Desktop-escritorio-online",                   # project_name estilo Claude Code
+  "DIRETRIZES JURIDICO PRO",
+  "ATAS",
+  "PLAN",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-DIRETRIZES-JURIDICO-PRO",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-ATAS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-PLAN",
+]
+
+# ─── Andar 2 — JP-Exec ────────────────────────────────────────────────────
+# Operação dia-a-dia: código, dashboards, CRM, atendimento, campanhas,
+# criativos. "Vou tocar a empresa hoje."
+[[floors]]
+name = "JP-Exec"
+floor_number = 2
+accent = "#8B6F1B"  # JP Gold Dark
+icon = "⚙️"
+repos = [
+  # Este painel (executa a JP)
+  "escritorio online",
+  "escritorio-online",
+  "C--Users-Pedro-Desktop-escritorio-online",
   "C--Users-Pedro-Desktop-escritorio-online-backend",
   "C--Users-Pedro-Desktop-escritorio-online-frontend",
+  "C--Users-Pedro-Desktop-escritorio-online-frontend-public-sprites",
+  # MCPs e operacionais soltos no Desktop
+  "juris-mcp",
+  "C--Users-Pedro-Desktop-juris-mcp",
+  "claude-comercial",
+  "C--Users-Pedro-Desktop-claude-comercial",
+  "meta-ads",
+  "C--Users-Pedro-Desktop-meta-ads",
+  # Second Brain — raiz e subpastas operacionais
+  "JURIDICO PRO",
+  "JURIDICO PRO - SECOND BRAIN",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN",
+  "COMERCIAL",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-COMERCIAL",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-COMERCIAL-CONTRATOS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-COMERCIAL-CRM-E-IA",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-COMERCIAL-REPERT-RIO---BEM-SUCEDIDOS",
+  "JURISCHAT MCP",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-JURISCHAT-MCP",
+  "monitor-lexpro",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-monitor-lexpro",
+  "CRIATIVOS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-CRIATIVOS",
+  "CRIAR CAMPANHA - META",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-CRIAR-CAMPANHA---META",
+  "GOOGLE-ADS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-GOOGLE-ADS",
+  "TELEGRAM",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-TELEGRAM",
+  "DOCUMENTOS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-DOCUMENTOS",
+  "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-meta-ads",
 ]
+
+# ─── Andar 3 — Pessoal-Plan ───────────────────────────────────────────────
+# Finanças mensais, metas, saúde, estudos, planos de vida.
+# "Vou pensar minha vida."
+[[floors]]
+name = "Pessoal-Plan"
+floor_number = 3
+accent = "#4FB0C6"  # Azul calmo (planejamento/reflexão)
+icon = "🌱"
+repos = [
+  "PLAN",
+  "C--Users-Pedro-Desktop-PESSOAL-PLAN",
+]
+
+# ─── Andar 4 — Pessoal-Exec ───────────────────────────────────────────────
+# Contas a pagar, mercado, treino, compromissos. Dia-a-dia da vida.
+# "Vou cuidar de mim hoje."
+[[floors]]
+name = "Pessoal-Exec"
+floor_number = 4
+accent = "#2E8B57"  # Verde (ação/vitalidade)
+icon = "🏃"
+repos = [
+  "EXEC",
+  "ROUPAS",
+  "C--Users-Pedro-Desktop-PESSOAL-EXEC",
+  "C--Users-Pedro-Desktop-PESSOAL-ROUPAS",
+]
+
+# ─── Andar 5 — Cobertura / Mirante ────────────────────────────────────────
+# View agregada — atividade dos 4 andares, sessões ativas, "fogos do dia",
+# caixa de sessões sem casa. Não recebe sessão própria (repos vazio).
+# "Vou orientar o dia" / "Vou organizar o que tá solto."
+[[floors]]
+name = "Cobertura"
+floor_number = 5
+accent = "#9CA3AF"  # Cinza/prata (visão neutra de cima)
+icon = "🛰️"
+repos = []
