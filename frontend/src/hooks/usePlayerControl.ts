@@ -229,6 +229,14 @@ export function usePlayerControl(): void {
         const step = SPEED_PX_PER_SEC * dt;
 
         if (controlledEntityId === "boss") {
+          // Claudius preso na mesa (Pedro 2026-06-07): teclado não move
+          // o boss enquanto CLAUDIUS_PINNED_TO_DESK estiver ativo em
+          // OfficeGame. Acesso direto à flag via store-side seria mais
+          // limpo; por ora apenas ignora o move se o boss está sentado.
+          if (store.entitySeats.has("boss")) {
+            rafId = requestAnimationFrame(tick);
+            return;
+          }
           // Normal movement clears any rotate-only override so the
           // delta-detected facing takes over while walking.
           if (store.bossFacing !== null) store.setBossFacing(null);
@@ -323,6 +331,26 @@ export function usePlayerControl(): void {
             if (advanceWaypoint) {
               const nextIdx = ctm.pathIdx + 1;
               if (nextIdx >= ctm.path.length) {
+                // Fim do path: se havia uma cadeira-alvo, snap pra ela e
+                // senta. Sem snap, a entity fica parada num tile vizinho
+                // e o sprite "sentado" não alinha com a mesa. (Pedro 2026-06-07.)
+                const targetChair = ctm.sittingTargetChair;
+                if (targetChair) {
+                  const seat = { x: targetChair.x, y: targetChair.y };
+                  if (controlledEntityId === "boss") {
+                    store.setBossPosition(seat);
+                  } else if (store.userAvatarPositions.has(controlledEntityId)) {
+                    store.setUserAvatarPosition(controlledEntityId, seat);
+                  } else if (store.agents.has(controlledEntityId)) {
+                    store.updateAgentPosition(controlledEntityId, seat);
+                    store.updateAgentTarget(controlledEntityId, seat);
+                  }
+                  store.setEntitySeated(controlledEntityId, {
+                    x: targetChair.x,
+                    y: targetChair.y,
+                    deskTopY: targetChair.deskTopY,
+                  });
+                }
                 store.clearClickToMoveTarget();
               } else {
                 store.advanceClickToMovePathIdx(nextIdx);

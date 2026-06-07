@@ -11,7 +11,6 @@ import { memo, useMemo, useState, useCallback, type ReactNode } from "react";
 import { useTick } from "@pixi/react";
 import { Graphics, TextStyle, Texture, Rectangle } from "pixi.js";
 import type { BossState, BubbleContent, Position } from "@/types";
-import { MarqueeText } from "./MarqueeText";
 import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
@@ -31,7 +30,6 @@ export interface BossSpriteProps {
   state: BossState;
   bubble: BubbleContent | null;
   inUseBy: "arrival" | "departure" | null;
-  currentTask: string | null;
   chairTexture: Texture | null;
   deskTexture: Texture | null;
   keyboardTexture: Texture | null;
@@ -275,7 +273,6 @@ function BossSpriteComponent({
   state,
   bubble,
   inUseBy: _inUseBy,
-  currentTask,
   chairTexture,
   deskTexture,
   keyboardTexture,
@@ -620,12 +617,10 @@ function BossSpriteComponent({
         </pixiContainer>
       )}
 
-      {/* Task marquee on desk - scrolling user prompt */}
-      {showCharacter && currentTask && (
-        <pixiContainer x={0} y={70}>
-          <MarqueeText text={currentTask} width={115} color="#00ff88" />
-        </pixiContainer>
-      )}
+      {/* Task marquee migrado pro Whiteboard (modo 12 — ClaudiusPromptMode).
+          A mesa não exibe mais o leitor verde — o prompt ativo do Claudius
+          agora aparece em escala grande no quadro do escritório, legível de
+          longe. Veja Whiteboard.tsx + whiteboard/ClaudiusPromptMode.tsx. */}
 
       {/* Bubble - only render if renderBubble is true and boss is at desk */}
       {showCharacter && renderBubble && bubble && !isAway && (

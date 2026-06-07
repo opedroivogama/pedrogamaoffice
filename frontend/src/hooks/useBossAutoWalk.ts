@@ -60,6 +60,13 @@ function pickRandomWalkableTarget(): { x: number; y: number } | null {
  * Manual user control (controlledEntityId === "boss") wins: this hook bails
  * out entirely so it doesn't fight WASD input.
  */
+// Modo "Claudius preso na mesa" (Pedro 2026-06-07): enquanto o wander/walk
+// não está bem calibrado, mantém o Claudius sempre sentado. OfficeGame faz
+// setEntitySeated("boss", ...) no mount; este hook precisa virar no-op pra
+// não brigar (auto-wander tentaria mover ele e o sprite oscilaria). Troca
+// pra false pra reativar wander.
+const CLAUDIUS_PINNED_TO_DESK = true;
+
 export function useBossAutoWalk(): void {
   const target = useGameStore((s) => s.bossWalkTarget);
   const controlled = useGameStore((s) => s.controlledEntityId);
@@ -69,6 +76,7 @@ export function useBossAutoWalk(): void {
   // desk"; entering IDLE means "free to roam". The auto-wander interval is
   // gated on the same state inside the tick.
   useEffect(() => {
+    if (CLAUDIUS_PINNED_TO_DESK) return;
     if (controlled === "boss") return;
     const store = useGameStore.getState();
     if (backendState !== "idle") {
@@ -86,6 +94,7 @@ export function useBossAutoWalk(): void {
 
   // Periodically pick a new random target while IDLE.
   useEffect(() => {
+    if (CLAUDIUS_PINNED_TO_DESK) return;
     if (controlled === "boss") return;
     if (backendState !== "idle") return;
     const tick = () => {
@@ -108,6 +117,7 @@ export function useBossAutoWalk(): void {
 
   // Animate position toward the active target.
   useEffect(() => {
+    if (CLAUDIUS_PINNED_TO_DESK) return;
     if (!target) return;
     if (controlled === "boss") return;
 
