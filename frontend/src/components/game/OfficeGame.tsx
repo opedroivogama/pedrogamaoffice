@@ -1775,18 +1775,19 @@ export function OfficeGame(): ReactNode {
                       2026-06-06) pra permitir personagem passar atrás dela
                       mas na frente da cadeira. */}
                   <pixiContainer sortableChildren={true}>
-                    {/* Desk chairs - zIndex baixíssimo: cadeira fica SEMPRE
-                        atrás de qualquer personagem em pé. Personagem
-                        sentado cobre a cadeira via branch seated (renderiza
-                        com zIndex próprio = chair.deskTopY - 1). Pedro
-                        2026-06-06. */}
+                    {/* Desk chairs - zIndex = desk.y (linha do topo da mesa).
+                        Antes era 1 (sempre atrás de tudo) — agora compete
+                        no Y-sort: personagem em pé com foot.y < desk.y
+                        (vindo do NORTH) fica atrás da cadeira. Sentado
+                        (zIndex = chair.deskTopY - 1 ≈ desk.y + 5) ainda
+                        fica na FRENTE da cadeira. Pedro 2026-06-07. */}
                     {deskPositions.map((desk, i) => {
                       return (
                         <pixiContainer
                           key={`chair-${i}`}
                           x={desk.x}
                           y={desk.y}
-                          zIndex={1}
+                          zIndex={desk.y}
                           eventMode="static"
                           cursor="pointer"
                           onPointerTap={() => handleDeskTap(desk)}
@@ -1804,12 +1805,12 @@ export function OfficeGame(): ReactNode {
                       );
                     })}
 
-                    {/* Mesas split em 2 sprites — Pedro 2026-06-06:
-                        - top half (zIndex 999999): metade superior sempre
-                          na FRENTE do personagem (tampo cobre tronco)
-                        - bottom half (Y-sort na BASE da mesa): pernas cobrem
-                          personagens atrás da mesa, mas personagens na frente
-                          (pé.zIndex > base.zIndex) ficam na frente das pernas. */}
+                    {/* Mesas split em 2 sprites — Pedro 2026-06-07:
+                        - top half: zIndex = borda SUL do tampo. Personagem
+                          em pé com foot.y > essa linha (vindo do SOUTH e
+                          encostando na mesa) fica SOBRE o tampo. Sentado
+                          (zIndex = chair.deskTopY - 1) fica atrás.
+                        - bottom half (pernas): Y-sort na base da mesa. */}
                     {deskTextureSplit &&
                       deskPositions.map((desk, i) => {
                         const topVisual =
@@ -1820,6 +1821,11 @@ export function OfficeGame(): ReactNode {
                         // VISUAL passa BEM além da base da mesa. Pedro
                         // 2026-06-06.
                         const baseZ = desk.y + topVisual + 60;
+                        // Top do tampo: aresta sul (= desk.y + topVisual).
+                        // Sentado tem zIndex ~ desk.y + 5 → SEMPRE menor
+                        // que topZ → sentado fica atrás do tampo. Pé em
+                        // pé com foot.y > topZ → na frente do tampo.
+                        const topZ = desk.y + topVisual;
                         return (
                           <Fragment key={`desk-${i}`}>
                             <pixiContainer
@@ -1838,7 +1844,7 @@ export function OfficeGame(): ReactNode {
                             <pixiContainer
                               x={desk.x}
                               y={desk.y}
-                              zIndex={999999}
+                              zIndex={topZ}
                               eventMode="static"
                               cursor="pointer"
                               onPointerTap={() => handleDeskTap(desk)}
