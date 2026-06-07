@@ -137,6 +137,10 @@ import { CollisionEditor, type PaintMode } from "./CollisionEditor";
 import { getNavigationGrid, TILE_SIZE, TileType } from "@/systems/navigationGrid";
 import { shouldIgnoreShortcut } from "@/utils/shortcutGate";
 import { calculatePath } from "@/systems/pathfinding";
+import {
+  getFootY,
+  isFootprintWalkable,
+} from "@/systems/footprintCollision";
 import { useChunkedBubble } from "@/hooks/useChunkedBubble";
 import { ClickToMovePath } from "./ClickToMovePath";
 import { getCharacterFootOffsetY } from "@/hooks/usePlayerControl";
@@ -513,12 +517,21 @@ function WanderingBoss({
     });
   }, [chair, texture]);
 
+  // Render size dinâmico — sprites grandes (claudeGold/AI_GOLD_HELMET 248px
+  // com padding em volta) precisam de width=240 pra ler na escala correta;
+  // fallback chromeDummy (128px sem padding) usa 128. Mesma heurística do
+  // BossSprite sentado em characterRenderSize. Sem isso, sentar em cadeira
+  // não-boss (que cai aqui) renderizava Claudius minúsculo porque o sprite
+  // 248 num box 128 fica com padding gigante visível (Pedro 2026-06-07).
+  const renderSize =
+    (texture?.source?.width ?? 128) >= 200 ? 240 : 128;
+
   // Quando sentado em QUALQUER cadeira (boss desk ou outra), renderiza
   // versão cropada na cadeira. Sem isso, sentar em cadeira de agent fazia
   // Claudius sumir (BossSprite esconde com isAway, WanderingBoss retornava
   // null). Pedro 2026-06-06.
   if (chair && seatedTexture) {
-    const seatedHeight = 128 * SEATED_CROP_RATIO;
+    const seatedHeight = renderSize * SEATED_CROP_RATIO;
     return (
       <pixiContainer
         x={chair.x}
@@ -530,7 +543,7 @@ function WanderingBoss({
           anchor={{ x: 0.5, y: 1 }}
           x={0}
           y={0}
-          width={128}
+          width={renderSize}
           height={seatedHeight}
           tint={tint}
         />
@@ -553,8 +566,8 @@ function WanderingBoss({
           anchor={{ x: 0.5, y: 1 }}
           x={0}
           y={0}
-          width={128}
-          height={128}
+          width={renderSize}
+          height={renderSize}
           scale={{ x: flipX ? -1 : 1, y: 1 }}
           tint={tint}
         />
@@ -1027,15 +1040,19 @@ export function OfficeGame(): ReactNode {
       cur = store.agents.get(id)?.currentPosition ?? null;
     if (!cur) return;
 
-    // Snap target to grid; bail out if the tile is unwalkable.
+    // Snap target to grid; bail out if a personagem com ESSA footprint
+    // não cabe ali (mesma fórmula do keyboard + overlay azul).
     const gx = Math.floor(x / TILE_SIZE);
     const gy = Math.floor(y / TILE_SIZE);
     const grid = getNavigationGrid();
-    if (!grid.isWalkable(gx, gy)) return;
+    const targetCx = gx * TILE_SIZE + TILE_SIZE / 2;
+    const targetCy = gy * TILE_SIZE + TILE_SIZE / 2;
+    if (!isFootprintWalkable(grid, targetCx, getFootY(targetCy, id))) return;
 
     // Aim at the tile center so the entity comes to rest neatly.
-    const target = { x: gx * TILE_SIZE + TILE_SIZE / 2, y: gy * TILE_SIZE + TILE_SIZE / 2 };
-    const path = calculatePath(cur, target, id);
+    const target = { x: targetCx, y: targetCy };
+    // 4º param = entityId → A* usa footprint+offset (não atravessa mesa).
+    const path = calculatePath(cur, target, id, id);
     if (path.length === 0) return;
 
     // Levanta da cadeira se estava sentado (mover pra outro lugar = sair).
@@ -1126,7 +1143,7 @@ export function OfficeGame(): ReactNode {
       store.setEntitySeated(id, chairSeat);
       return;
     }
-    const path = calculatePath(cur, { x: chair.x, y: chair.y }, id);
+    const path = calculatePath(cur, { x: chair.x, y: chair.y }, id, id);
     if (path.length === 0) {
       store.setPathErrorMessage("Sem caminho possível");
       return;

@@ -51,6 +51,7 @@ export function calculatePath(
   start: Position,
   end: Position,
   agentId?: string,
+  entityId?: string,
 ): Position[] {
   // Quick check: already at destination
   const dx = end.x - start.x;
@@ -61,8 +62,9 @@ export function calculatePath(
     return [start, end];
   }
 
-  // Find path using A*
-  const rawPath = findWorldPath(start, end, agentId);
+  // Find path using A* — entityId opt-in liga footprint+foot offset
+  // (pra player), sem ele cai no check single-tile (NPCs autônomos).
+  const rawPath = findWorldPath(start, end, agentId, entityId);
 
   // If A* returns empty or very short path, return minimal path
   // DO NOT fallback to direct path as it may go through obstacles

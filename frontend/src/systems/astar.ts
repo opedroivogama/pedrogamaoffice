@@ -12,6 +12,24 @@ import {
   TILE_SIZE,
   getNavigationGrid,
 } from "./navigationGrid";
+import { getFootY, isFootprintWalkable } from "./footprintCollision";
+
+/** Check se um tile (gx, gy) é walkable considerando footprint+foot offset
+ *  do entityId. Sem entityId, fallback pro check legado de 1 tile.
+ *  Pedro 2026-06-07: A* precisa da mesma fórmula que o teclado/overlay pra
+ *  o click-to-move não atravessar mesa. */
+function isTileWalkableForEntity(
+  grid: NavigationGrid,
+  gx: number,
+  gy: number,
+  entityId?: string,
+  ignoreAgentId?: string,
+): boolean {
+  if (!entityId) return grid.isWalkable(gx, gy, ignoreAgentId);
+  const cx = gx * TILE_SIZE + TILE_SIZE / 2;
+  const cy = gy * TILE_SIZE + TILE_SIZE / 2;
+  return isFootprintWalkable(grid, cx, getFootY(cy, entityId), ignoreAgentId);
+}
 
 // Diagonal movement cost (sqrt(2))
 const DIAGONAL_COST = Math.SQRT2;
@@ -125,6 +143,7 @@ export function findPath(
   start: Position,
   end: Position,
   ignoreAgentId?: string,
+  entityId?: string,
 ): GridPosition[] {
   const grid = getNavigationGrid();
 
@@ -132,17 +151,17 @@ export function findPath(
   const endGrid = grid.worldToGrid(end.x, end.y);
 
   // Quick check: if start or end is not walkable, return empty path
-  if (!grid.isWalkable(startGrid.gx, startGrid.gy, ignoreAgentId)) {
+  if (!isTileWalkableForEntity(grid, startGrid.gx, startGrid.gy, entityId, ignoreAgentId)) {
     // Try to find nearest walkable tile to start
-    const nearStart = findNearestWalkable(grid, startGrid, ignoreAgentId);
+    const nearStart = findNearestWalkable(grid, startGrid, ignoreAgentId, entityId);
     if (!nearStart) return [];
     startGrid.gx = nearStart.gx;
     startGrid.gy = nearStart.gy;
   }
 
-  if (!grid.isWalkable(endGrid.gx, endGrid.gy, ignoreAgentId)) {
+  if (!isTileWalkableForEntity(grid, endGrid.gx, endGrid.gy, entityId, ignoreAgentId)) {
     // Try to find nearest walkable tile to end
-    const nearEnd = findNearestWalkable(grid, endGrid, ignoreAgentId);
+    const nearEnd = findNearestWalkable(grid, endGrid, ignoreAgentId, entityId);
     if (!nearEnd) return [];
     endGrid.gx = nearEnd.gx;
     endGrid.gy = nearEnd.gy;
@@ -193,7 +212,16 @@ export function findPath(
       const neighborKey = `${neighbor.gx},${neighbor.gy}`;
 
       if (closedSet.has(neighborKey)) continue;
-      if (!grid.isWalkable(neighbor.gx, neighbor.gy, ignoreAgentId)) continue;
+      if (
+        !isTileWalkableForEntity(
+          grid,
+          neighbor.gx,
+          neighbor.gy,
+          entityId,
+          ignoreAgentId,
+        )
+      )
+        continue;
 
       const dx = neighbor.gx - current.gx;
       const dy = neighbor.gy - current.gy;
@@ -234,6 +262,7 @@ function findNearestWalkable(
   grid: NavigationGrid,
   pos: GridPosition,
   ignoreAgentId?: string,
+  entityId?: string,
 ): GridPosition | null {
   // Spiral search outward
   const maxRadius = 5;
@@ -246,7 +275,7 @@ function findNearestWalkable(
         const gx = pos.gx + dx;
         const gy = pos.gy + dy;
 
-        if (grid.isWalkable(gx, gy, ignoreAgentId)) {
+        if (isTileWalkableForEntity(grid, gx, gy, entityId, ignoreAgentId)) {
           return { gx, gy };
         }
       }
@@ -291,8 +320,9 @@ export function findWorldPath(
   start: Position,
   end: Position,
   ignoreAgentId?: string,
+  entityId?: string,
 ): Position[] {
-  const gridPath = findPath(start, end, ignoreAgentId);
+  const gridPath = findPath(start, end, ignoreAgentId, entityId);
 
   if (gridPath.length === 0) {
     // No valid path found - log warning and return empty
