@@ -353,7 +353,9 @@ function PlumbobOverlay(): ReactNode {
     const chair = findNearestChair(userPos, 30);
     if (chair) {
       x = chair.x;
-      y = chair.deskTopY;
+      // -11 acompanha o ajuste do anchor do sprite sentado (alinhamento
+      // com topo do tampo, Pedro 2026-06-07).
+      y = chair.deskTopY - 11;
       plumbobY = -179;
     } else {
       x = userPos.x;
@@ -503,9 +505,14 @@ function WanderingBoss({
   const chair = useGameStore(
     (s) => s.entitySeats.get("boss") ?? null,
   );
+  // Quando sentado, FORÇA usar idle south (textures.idle) como fonte do crop.
+  // Sem isso, qualquer ruído no `texture` (frame de walk sobrando após teleporte
+  // pra cadeira, micro-update de position por outros sistemas) fazia o sprite
+  // sentado animar como se estivesse andando dentro da mesa (Pedro 2026-06-07).
+  const seatedSourceTexture = chair ? textures.idle : texture;
   const seatedTexture = useMemo(() => {
-    if (!chair || !texture) return null;
-    const src = texture.source;
+    if (!chair || !seatedSourceTexture) return null;
+    const src = seatedSourceTexture.source;
     return new Texture({
       source: src,
       frame: new Rectangle(
@@ -515,16 +522,15 @@ function WanderingBoss({
         Math.round(src.height * SEATED_CROP_RATIO),
       ),
     });
-  }, [chair, texture]);
+  }, [chair, seatedSourceTexture]);
 
   // Render size dinâmico — sprites grandes (claudeGold/AI_GOLD_HELMET 248px
-  // com padding em volta) precisam de width=240 pra ler na escala correta;
-  // fallback chromeDummy (128px sem padding) usa 128. Mesma heurística do
-  // BossSprite sentado em characterRenderSize. Sem isso, sentar em cadeira
-  // não-boss (que cai aqui) renderizava Claudius minúsculo porque o sprite
-  // 248 num box 128 fica com padding gigante visível (Pedro 2026-06-07).
+  // com padding em volta) usam 282 pra match exato do Pedro Samurai (size=282
+  // no UserAvatar). Sem isso, o Claudius renderizava em 240 e parecia recuado
+  // dentro da mesa em relação ao Pedro, que estica o sprite 248 pra 282 (Pedro
+  // 2026-06-07). Fallback chromeDummy (128px sem padding) usa 128.
   const renderSize =
-    (texture?.source?.width ?? 128) >= 200 ? 240 : 128;
+    (texture?.source?.width ?? 128) >= 200 ? 282 : 128;
 
   // Quando sentado em QUALQUER cadeira (boss desk ou outra), renderiza
   // versão cropada na cadeira. Sem isso, sentar em cadeira de agent fazia
@@ -947,12 +953,13 @@ function UserAvatarLabelsLayer(): ReactNode {
         let labelX: number;
         let labelY: number;
         if (chair) {
-          // 8px acima do topo real do crânio sentado (sprite é cropped pra
-          // SEATED_CROP_RATIO da altura original — o crânio fica mais
-          // próximo do desk do que na versão em pé).
+          // 8px acima do topo real do crânio sentado. -11 acompanha o
+          // ajuste do anchor do sprite sentado (alinhamento com topo do
+          // tampo, Pedro 2026-06-07).
           labelX = chair.x;
           labelY =
             chair.deskTopY -
+            11 -
             (cfg.size * SEATED_CROP_RATIO * (1 - cfg.topPaddingRatio) + 8);
         } else {
           labelX = pos.x;
@@ -1009,11 +1016,100 @@ function PedroBubbleLayer(): ReactNode {
 // MAIN COMPONENT
 // ============================================================================
 
+// Modo "Claudius preso na mesa" (Pedro 2026-06-07): mantém o Claudius
+// sempre sentado na própria mesa. Bloqueia movimentação por click e
+// auto-walk (useBossAutoWalk tem flag equivalente). Vira false pra
+// reativar wander/click-to-move do boss.
+const CLAUDIUS_PINNED_TO_DESK = true;
+
 export function OfficeGame(): ReactNode {
   // Track PixiJS app for cleanup
   const appRef = useRef<PixiApplication | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
+
+  // Garante que o Claudius começa (e permanece) sentado na própria mesa.
+  // Roda no mount e a cada vez que o seat for limpo por algum sistema
+  // residual — o store.entitySeats é a fonte da verdade do "sentado".
+  useEffect(() => {
+    if (!CLAUDIUS_PINNED_TO_DESK) return;
+    const store = useGameStore.getState();
+    const chair = { x: 640, y: 900, deskTopY: 930 };
+    if (!store.entitySeats.has("boss")) {
+      store.setEntitySeated("boss", chair);
+      store.setBossPosition({ x: chair.x, y: chair.y });
+    }
+    // Re-pin se algo limpar o seat.
+    const unsub = useGameStore.subscribe((state, prev) => {
+      const wasSeated = prev.entitySeats.has("boss");
+      const isSeated = state.entitySeats.has("boss");
+      if (wasSeated && !isSeated) {
+        useGameStore.getState().setEntitySeated("boss", chair);
+        useGameStore.getState().setBossPosition({ x: chair.x, y: chair.y });
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Procura o tile walkable mais próximo de um alvo (BFS em anéis).
+  // Usado pra "andar até o mais perto possível da cadeira": como a cadeira
+  // em si frequentemente está num tile não-walkable (atrás do tampo), o A*
+  // mira aqui em vez de na cadeira. Retorna world-coords (centro do tile)
+  // ou null se nenhum vizinho até MAX_R for walkable pra essa entity.
+  const findApproachTile = useCallback(
+    (
+      targetX: number,
+      targetY: number,
+      id: string,
+    ): { x: number; y: number } | null => {
+      const grid = getNavigationGrid();
+      const baseGx = Math.floor(targetX / TILE_SIZE);
+      const baseGy = Math.floor(targetY / TILE_SIZE);
+      const MAX_R = 6;
+      // Radius 0 primeiro — se o próprio tile do alvo for walkable.
+      for (let r = 0; r <= MAX_R; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            // Só o ANEL do raio r (skip interior já testado).
+            if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+            const gx = baseGx + dx;
+            const gy = baseGy + dy;
+            const cx = gx * TILE_SIZE + TILE_SIZE / 2;
+            const cy = gy * TILE_SIZE + TILE_SIZE / 2;
+            if (isFootprintWalkable(grid, cx, getFootY(cy, id))) {
+              return { x: cx, y: cy };
+            }
+          }
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
+  // Eject helper: quando uma entity sai da cadeira pra andar, teleporta pra
+  // um tile walkable em frente à mesa (chair.deskTopY + N*TILE) antes de
+  // calcular o path. Sem isso, o A* saía da posição da cadeira (atrás do
+  // tampo) e o sprite em pé renderizava dentro da mesa por 1-2 frames até
+  // o pathfinder chegar num tile livre (Pedro 2026-06-07).
+  const ejectFromChair = useCallback(
+    (
+      id: string,
+      chair: { x: number; y: number; deskTopY: number },
+    ): { x: number; y: number } => {
+      const grid = getNavigationGrid();
+      for (const dy of [TILE_SIZE * 2, TILE_SIZE * 3, TILE_SIZE * 4, TILE_SIZE * 5]) {
+        const ejectY = chair.deskTopY + dy;
+        if (isFootprintWalkable(grid, chair.x, getFootY(ejectY, id))) {
+          return { x: chair.x, y: ejectY };
+        }
+      }
+      // Sem tile livre encontrado — devolve a posição da cadeira pra não
+      // travar; o usuário pode tentar novamente.
+      return { x: chair.x, y: chair.y };
+    },
+    [],
+  );
 
   // Click-to-move: when a tile is tapped and a character is being controlled,
   // pathfind from its current position and queue the path in the store. The
@@ -1021,49 +1117,68 @@ export function OfficeGame(): ReactNode {
   // Pixi's `global` on a FederatedPointerEvent is world-space (the office
   // canvas is the root coord system here), so no extra zoom/pan conversion
   // is needed — TransformWrapper scales the whole canvas after Pixi.
-  const handleFloorTap = useCallback((e: FederatedPointerEvent) => {
-    const store = useGameStore.getState();
-    const id = store.controlledEntityId;
-    if (!id) return;
+  const handleFloorTap = useCallback(
+    (e: FederatedPointerEvent) => {
+      const store = useGameStore.getState();
+      const id = store.controlledEntityId;
+      if (!id) return;
+      // Claudius preso na mesa: ignora click-to-move pra ele.
+      if (CLAUDIUS_PINNED_TO_DESK && id === "boss") return;
 
-    // World-space pixel coords come straight from Pixi's global pointer pos
-    // (the container that hosts this handler sits in office-world space).
-    const x = e.global.x;
-    const y = e.global.y;
+      // World-space pixel coords come straight from Pixi's global pointer pos
+      // (the container that hosts this handler sits in office-world space).
+      const x = e.global.x;
+      const y = e.global.y;
 
-    // Resolve current position of the controlled entity.
-    let cur: { x: number; y: number } | null = null;
-    if (id === "boss") cur = store.boss.position;
-    else if (store.userAvatarPositions.has(id))
-      cur = store.userAvatarPositions.get(id) ?? null;
-    else if (store.agents.has(id))
-      cur = store.agents.get(id)?.currentPosition ?? null;
-    if (!cur) return;
+      // Resolve current position of the controlled entity.
+      let cur: { x: number; y: number } | null = null;
+      if (id === "boss") cur = store.boss.position;
+      else if (store.userAvatarPositions.has(id))
+        cur = store.userAvatarPositions.get(id) ?? null;
+      else if (store.agents.has(id))
+        cur = store.agents.get(id)?.currentPosition ?? null;
+      if (!cur) return;
 
-    // Snap target to grid; bail out if a personagem com ESSA footprint
-    // não cabe ali (mesma fórmula do keyboard + overlay azul).
-    const gx = Math.floor(x / TILE_SIZE);
-    const gy = Math.floor(y / TILE_SIZE);
-    const grid = getNavigationGrid();
-    const targetCx = gx * TILE_SIZE + TILE_SIZE / 2;
-    const targetCy = gy * TILE_SIZE + TILE_SIZE / 2;
-    if (!isFootprintWalkable(grid, targetCx, getFootY(targetCy, id))) return;
+      // Snap target to grid; bail out if a personagem com ESSA footprint
+      // não cabe ali (mesma fórmula do keyboard + overlay azul).
+      const gx = Math.floor(x / TILE_SIZE);
+      const gy = Math.floor(y / TILE_SIZE);
+      const grid = getNavigationGrid();
+      const targetCx = gx * TILE_SIZE + TILE_SIZE / 2;
+      const targetCy = gy * TILE_SIZE + TILE_SIZE / 2;
+      if (!isFootprintWalkable(grid, targetCx, getFootY(targetCy, id))) return;
 
-    // Aim at the tile center so the entity comes to rest neatly.
-    const target = { x: targetCx, y: targetCy };
-    // 4º param = entityId → A* usa footprint+offset (não atravessa mesa).
-    const path = calculatePath(cur, target, id, id);
-    if (path.length === 0) return;
+      // Se estava sentado, ejeta primeiro pra frente da mesa e recalcula
+      // path do novo ponto. Isso resolve o "sprite andando dentro da mesa"
+      // e garante saída visível.
+      const seatedChair = store.entitySeats.get(id);
+      if (seatedChair) {
+        cur = ejectFromChair(id, seatedChair);
+        if (id === "boss") store.setBossPosition(cur);
+        else if (store.userAvatarPositions.has(id))
+          store.setUserAvatarPosition(id, cur);
+        else if (store.agents.has(id)) {
+          store.updateAgentPosition(id, cur);
+          store.updateAgentTarget(id, cur);
+        }
+        store.setEntitySeated(id, null);
+      }
 
-    // Levanta da cadeira se estava sentado (mover pra outro lugar = sair).
-    if (store.entitySeats.has(id)) store.setEntitySeated(id, null);
-    store.setClickToMoveTarget({
-      entityId: id,
-      path,
-      pathIdx: 0,
-      targetTile: { gx, gy },
-    });
-  }, []);
+      // Aim at the tile center so the entity comes to rest neatly.
+      const target = { x: targetCx, y: targetCy };
+      // 4º param = entityId → A* usa footprint+offset (não atravessa mesa).
+      const path = calculatePath(cur, target, id, id);
+      if (path.length === 0) return;
+
+      store.setClickToMoveTarget({
+        entityId: id,
+        path,
+        pathIdx: 0,
+        targetTile: { gx, gy },
+      });
+    },
+    [ejectFromChair],
+  );
 
   // Modal de confirmação pra sentar — evita sentar acidental quando o
   // usuário só clicou pra mexer perto da mesa. Pedro 2026-06-06.
@@ -1115,6 +1230,8 @@ export function OfficeGame(): ReactNode {
     const store = useGameStore.getState();
     const id = store.controlledEntityId;
     if (!id) return;
+    // Claudius preso na mesa: ignora tentativa de sentar em outra cadeira.
+    if (CLAUDIUS_PINNED_TO_DESK && id === "boss") return;
     const chair = findNearestChair({ x: desk.x, y: desk.y + 12 }, 60);
     if (!chair) return;
     let cur: { x: number; y: number } | null = null;
@@ -1143,29 +1260,80 @@ export function OfficeGame(): ReactNode {
       store.setEntitySeated(id, chairSeat);
       return;
     }
-    const path = calculatePath(cur, { x: chair.x, y: chair.y }, id, id);
-    if (path.length === 0) {
-      store.setPathErrorMessage("Sem caminho possível");
+    // Se já estava sentado em outra cadeira, ejeta pra frente da mesa
+    // primeiro e recalcula path do novo ponto. setEntitySeated(id, novaChair)
+    // acontece no fim do path. (Pedro 2026-06-07: igual ao handleFloorTap.)
+    const prevChair = store.entitySeats.get(id);
+    if (prevChair) {
+      cur = ejectFromChair(id, prevChair);
+      if (id === "boss") store.setBossPosition(cur);
+      else if (store.userAvatarPositions.has(id))
+        store.setUserAvatarPosition(id, cur);
+      else if (store.agents.has(id)) {
+        store.updateAgentPosition(id, cur);
+        store.updateAgentTarget(id, cur);
+      }
+      store.setEntitySeated(id, null);
+    }
+    // Procura o tile walkable mais perto possível da cadeira. A* não consegue
+    // mirar a cadeira direto porque ela costuma ficar atrás do tampo (tile
+    // não-walkable). Pedro 2026-06-07.
+    const chairSeat = {
+      x: chair.x,
+      y: chair.y,
+      deskTopY: chair.deskTopY,
+    };
+    const approach = findApproachTile(chair.x, chair.y, id);
+
+    // Helper local pra teleporte direto (sem path) — usado em 2 caminhos
+    // de fallback: sem approach tile possível OU path zero ≤ MAX_TELEPORT.
+    const TELEPORT_MAX_TILES = 8;
+    const distTilesToChair = distToChair / TILE_SIZE;
+    const teleportDirect = () => {
+      if (id === "boss") store.setBossPosition({ x: chair.x, y: chair.y });
+      else if (store.userAvatarPositions.has(id))
+        store.setUserAvatarPosition(id, { x: chair.x, y: chair.y });
+      else if (store.agents.has(id)) {
+        store.updateAgentPosition(id, { x: chair.x, y: chair.y });
+        store.updateAgentTarget(id, { x: chair.x, y: chair.y });
+      }
+      store.setEntitySeated(id, chairSeat);
+    };
+
+    if (!approach) {
+      // Cadeira em ilha sem vizinhos walkable em até 6 anéis. Teleporta
+      // direto se a entity está perto o suficiente.
+      if (distTilesToChair <= TELEPORT_MAX_TILES) {
+        teleportDirect();
+      } else {
+        store.setPathErrorMessage("Sem caminho possível");
+      }
       return;
     }
-    // Se já estava sentado em outra cadeira, levanta antes de andar pra
-    // nova. setEntitySeated(id, novaChair) acontece no fim do path.
-    if (store.entitySeats.has(id)) store.setEntitySeated(id, null);
+
+    const path = calculatePath(cur, approach, id, id);
+    if (path.length === 0) {
+      // A* não achou caminho até o approach tile. Mesma regra de fallback.
+      if (distTilesToChair <= TELEPORT_MAX_TILES) {
+        teleportDirect();
+      } else {
+        store.setPathErrorMessage("Sem caminho possível");
+      }
+      return;
+    }
     store.setClickToMoveTarget({
       entityId: id,
       path,
       pathIdx: 0,
       targetTile: {
-        gx: Math.floor(chair.x / TILE_SIZE),
-        gy: Math.floor(chair.y / TILE_SIZE),
+        gx: Math.floor(approach.x / TILE_SIZE),
+        gy: Math.floor(approach.y / TILE_SIZE),
       },
-      sittingTargetChair: {
-        x: chair.x,
-        y: chair.y,
-        deskTopY: chair.deskTopY,
-      },
+      // Quando o path terminar, usePlayerControl lê isso, snap pra cadeira
+      // e dispara setEntitySeated.
+      sittingTargetChair: chairSeat,
     });
-  }, [sitConfirmDesk]);
+  }, [sitConfirmDesk, ejectFromChair, findApproachTile]);
 
   // HMR version for forcing remount
   const hmrVersion = getHmrVersion();
@@ -2028,7 +2196,7 @@ export function OfficeGame(): ReactNode {
                             characterTypingTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
                             characterTypingEyeLeftTexture={claudeGoldIdleTexture ?? chromeDummyTexture}
                             characterIdleFrames={claudeGoldIdleFrames}
-                            characterRenderSize={claudeGoldIdleTexture ? 240 : 128}
+                            characterRenderSize={claudeGoldIdleTexture ? 282 : 128}
                             renderBubble={false}
                             isTyping={true /* TEMP DEBUG: forced typing pose */}
                             isWorking={

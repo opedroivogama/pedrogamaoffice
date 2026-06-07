@@ -502,7 +502,7 @@ const initialState = {
     ["pedro", { x: 950, y: 870 }],
     ["estagiario", { x: 1130, y: 870 }],
     ["chrome-dummy", { x: 770, y: 870 }],
-    ["pedro-samurai", { x: 800, y: 870 }],
+    ["pedro-samurai", { x: 1200, y: 950 }],
   ]),
   userAvatarBubbles: new Map<string, string>(),
   userAvatarFacings: new Map<string, string>(),
@@ -525,7 +525,7 @@ const initialState = {
 
   // Whiteboard
   whiteboardData: initialWhiteboardData,
-  whiteboardMode: 0 as WhiteboardMode,
+  whiteboardMode: 12 as WhiteboardMode,
 
   // UI
   isConnected: false,
@@ -1284,7 +1284,7 @@ export const useGameStore = create<GameStore>()(
         agents: new Map(),
         boss: { ...initialBossState, bubble: createEmptyBubbleState() },
         whiteboardData: { ...initialWhiteboardData },
-        whiteboardMode: 0,
+        whiteboardMode: 12,
       }),
 
     resetForReplay: () =>
@@ -1293,7 +1293,7 @@ export const useGameStore = create<GameStore>()(
         agents: new Map(),
         boss: { ...initialBossState, bubble: createEmptyBubbleState() },
         whiteboardData: { ...initialWhiteboardData },
-        whiteboardMode: 0,
+        whiteboardMode: 12,
         isReplaying: true,
       }),
 
