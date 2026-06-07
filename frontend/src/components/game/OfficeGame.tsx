@@ -535,7 +535,7 @@ function WanderingBoss({
     return (
       <pixiContainer
         x={chair.x}
-        y={chair.deskTopY}
+        y={chair.deskTopY - 11}
         zIndex={chair.deskTopY + 44}
       >
         <pixiSprite
@@ -798,7 +798,7 @@ function UserAvatar({
     return (
       <pixiContainer
         x={chair.x}
-        y={chair.deskTopY}
+        y={chair.deskTopY - 11}
         zIndex={chair.deskTopY + 44}
         onPointerTap={handleTap}
         interactive={clickToFocusEnabled}
