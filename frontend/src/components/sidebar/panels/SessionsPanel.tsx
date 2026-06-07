@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   FolderInput,
@@ -42,6 +43,8 @@ import { useSessionsPanelContext } from "./SessionsPanelContext";
 const CHIP_STORAGE_KEY = "session.folderFilter.v1";
 const SORT_STORAGE_KEY = "session.sortDirection.v1";
 const COLLAPSED_BUCKETS_STORAGE_KEY = "session.collapsedBuckets.v1";
+
+const EMPTY_FLOORS: ReadonlyArray<never> = [];
 
 // ============================================================================
 // EDITABLE NAME
@@ -138,7 +141,8 @@ export function SessionsPanel(): React.ReactNode {
   const [floorMenuFor, setFloorMenuFor] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const buildingFloors = useNavigationStore((s) => s.buildingConfig?.floors ?? []);
+  const buildingFloors =
+    useNavigationStore((s) => s.buildingConfig?.floors) ?? EMPTY_FLOORS;
   const lastAutoExpandedSessionRef = useRef<string | null>(null);
 
   // Bucket collapse state — default-collapsed buckets (e.g. "Anteriores")
@@ -161,7 +165,7 @@ export function SessionsPanel(): React.ReactNode {
       const saved = window.localStorage.getItem(CHIP_STORAGE_KEY);
       if (saved) setActiveChipIdState(saved);
       const savedSort = window.localStorage.getItem(SORT_STORAGE_KEY);
-      if (savedSort === "asc" || savedSort === "desc") {
+      if (savedSort === "asc" || savedSort === "desc" || savedSort === "size") {
         setSortDirectionState(savedSort);
       }
       const savedCollapsed = window.localStorage.getItem(
@@ -198,7 +202,9 @@ export function SessionsPanel(): React.ReactNode {
 
   const toggleSortDirection = useCallback(() => {
     setSortDirectionState((prev) => {
-      const next: SessionSortDirection = prev === "desc" ? "asc" : "desc";
+      // Ciclo: recentes → antigas → maiores → recentes
+      const next: SessionSortDirection =
+        prev === "desc" ? "asc" : prev === "asc" ? "size" : "desc";
       try {
         window.localStorage.setItem(SORT_STORAGE_KEY, next);
       } catch {
@@ -382,15 +388,19 @@ export function SessionsPanel(): React.ReactNode {
             className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors"
             title={
               sortDirection === "desc"
-                ? "Ordenando: recentes primeiro (clique para inverter)"
-                : "Ordenando: antigas primeiro (clique para inverter)"
+                ? "Ordenando: recentes primeiro (clique → antigas)"
+                : sortDirection === "asc"
+                  ? "Ordenando: antigas primeiro (clique → maiores)"
+                  : "Ordenando: maiores primeiro (clique → recentes)"
             }
-            aria-label="Alternar ordenação por data"
+            aria-label="Alternar ordenação"
           >
             {sortDirection === "desc" ? (
               <ArrowDownWideNarrow size={11} />
-            ) : (
+            ) : sortDirection === "asc" ? (
               <ArrowUpWideNarrow size={11} />
+            ) : (
+              <BarChart3 size={11} />
             )}
           </button>
           <button
