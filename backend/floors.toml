@@ -31,6 +31,25 @@ repos = [
   "C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN-PLAN",
 ]
 
+# ─── Andar 0 — Casa de Máquinas ───────────────────────────────────────────
+# Onde o Pedro mexe no PRÓPRIO painel — reparos, refactors, features novas
+# do escritorio online. Andar 0 = térreo/subsolo simbólico, "embaixo da
+# empresa". Quando Pedro tá codando aqui, ele tá com o capacete de
+# engenheiro, não de operador.
+[[floors]]
+name = "Casa de Máquinas"
+floor_number = 0
+accent = "#6B7888"  # Cinza-aço industrial
+icon = "🔧"
+repos = [
+  "escritorio online",
+  "escritorio-online",
+  "C--Users-Pedro-Desktop-escritorio-online",
+  "C--Users-Pedro-Desktop-escritorio-online-backend",
+  "C--Users-Pedro-Desktop-escritorio-online-frontend",
+  "C--Users-Pedro-Desktop-escritorio-online-frontend-public-sprites",
+]
+
 # ─── Andar 2 — JP-Exec ────────────────────────────────────────────────────
 # Operação dia-a-dia: código, dashboards, CRM, atendimento, campanhas,
 # criativos. "Vou tocar a empresa hoje."
@@ -40,13 +59,6 @@ floor_number = 2
 accent = "#8B6F1B"  # JP Gold Dark
 icon = "⚙️"
 repos = [
-  # Este painel (executa a JP)
-  "escritorio online",
-  "escritorio-online",
-  "C--Users-Pedro-Desktop-escritorio-online",
-  "C--Users-Pedro-Desktop-escritorio-online-backend",
-  "C--Users-Pedro-Desktop-escritorio-online-frontend",
-  "C--Users-Pedro-Desktop-escritorio-online-frontend-public-sprites",
   # MCPs e operacionais soltos no Desktop
   "juris-mcp",
   "C--Users-Pedro-Desktop-juris-mcp",
