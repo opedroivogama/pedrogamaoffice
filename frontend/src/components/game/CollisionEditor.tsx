@@ -25,6 +25,7 @@ import {
 import { useGameStore } from "@/stores/gameStore";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { getCharacterFootOffsetY } from "@/hooks/usePlayerControl";
+import { FOOTPRINT_OFFSETS } from "@/systems/footprintCollision";
 
 const COLOR_BLOCKED = 0xff3030;
 const COLOR_FLOOR = 0x30ff60;
@@ -37,19 +38,8 @@ const COLOR_BELOW = 0xc040ff;
 // usePlayerControl.ts (centro + 4 cardeais + 4 diagonais). Quando o
 // editor tá ativo, desenhamos os 9 pontos em cima de cada personagem
 // pra você ver quais SQM ele "ocupa" e por que (ou não) trava na wall.
-const FOOTPRINT_RADIUS = TILE_SIZE;
-const FOOTPRINT_RADIUS_DIAG = FOOTPRINT_RADIUS * 0.71;
-const FOOTPRINT_OFFSETS: ReadonlyArray<[number, number]> = [
-  [0, 0],
-  [-FOOTPRINT_RADIUS, 0],
-  [FOOTPRINT_RADIUS, 0],
-  [0, -FOOTPRINT_RADIUS],
-  [0, FOOTPRINT_RADIUS],
-  [-FOOTPRINT_RADIUS_DIAG, -FOOTPRINT_RADIUS_DIAG],
-  [FOOTPRINT_RADIUS_DIAG, -FOOTPRINT_RADIUS_DIAG],
-  [-FOOTPRINT_RADIUS_DIAG, FOOTPRINT_RADIUS_DIAG],
-  [FOOTPRINT_RADIUS_DIAG, FOOTPRINT_RADIUS_DIAG],
-];
+// FOOTPRINT_OFFSETS importado de @/systems/footprintCollision (fonte única
+// também usada pelo resolveCollidedMove do keyboard control).
 const COLOR_FOOTPRINT_OK = 0x00e0ff; // ciano — ponto walkable
 const COLOR_FOOTPRINT_BAD = 0xff00ff; // magenta — ponto em wall
 

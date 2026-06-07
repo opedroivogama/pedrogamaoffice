@@ -3,7 +3,11 @@
 import { useEffect } from "react";
 import { useGameStore, type GameStore } from "@/stores/gameStore";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/canvas";
-import { getNavigationGrid, TILE_SIZE } from "@/systems/navigationGrid";
+import { getNavigationGrid } from "@/systems/navigationGrid";
+import {
+  getFootY,
+  isFootprintWalkable,
+} from "@/systems/footprintCollision";
 import { directionFromDelta } from "@/hooks/usePedroSprites";
 
 /** Offset Y entre `position.y` (base do canvas do sprite) e o pé VISUAL do
@@ -46,13 +50,15 @@ function resolveCollidedMove(
   dy: number,
   step: number,
   margin: number,
+  entityId: string,
 ): { x: number; y: number } {
   const grid = getNavigationGrid();
-  const isWalkableAt = (x: number, y: number) => {
-    const gx = Math.floor(x / TILE_SIZE);
-    const gy = Math.floor(y / TILE_SIZE);
-    return grid.isWalkable(gx, gy);
-  };
+  // Checa colisão na footprint do PÉ VISUAL (mesmo overlay azul do
+  // CollisionEditor) — aplica o foot offset do personagem e testa os 9
+  // pontos. Sem isso a checagem cai num pixel só, 80px abaixo do pé real
+  // pro samurai, e o sprite atravessa mesa pintada. Pedro 2026-06-07.
+  const isWalkableAt = (x: number, y: number) =>
+    isFootprintWalkable(grid, x, getFootY(y, entityId));
 
   const targetX = clamp(cur.x + dx * step, margin, CANVAS_WIDTH - margin);
   const targetY = clamp(cur.y + dy * step, margin, CANVAS_HEIGHT - margin);
@@ -232,6 +238,7 @@ export function usePlayerControl(): void {
             dy,
             step,
             MARGIN,
+            "boss",
           );
           store.setBossPosition(next);
         } else if (store.userAvatarPositions.has(controlledEntityId)) {
@@ -242,7 +249,14 @@ export function usePlayerControl(): void {
           }
           const cur = store.userAvatarPositions.get(controlledEntityId);
           if (cur) {
-            const next = resolveCollidedMove(cur, dx, dy, step, MARGIN);
+            const next = resolveCollidedMove(
+              cur,
+              dx,
+              dy,
+              step,
+              MARGIN,
+              controlledEntityId,
+            );
             store.setUserAvatarPosition(controlledEntityId, next);
           }
         } else {
@@ -254,6 +268,7 @@ export function usePlayerControl(): void {
               dy,
               step,
               MARGIN,
+              controlledEntityId,
             );
             store.updateAgentPosition(controlledEntityId, next);
             // Keep target in sync so the animation system doesn't try to
