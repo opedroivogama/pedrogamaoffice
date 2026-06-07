@@ -17,6 +17,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useWebSocketEvents } from "@/hooks/useWebSocketEvents";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionSwitch } from "@/hooks/useSessionSwitch";
+import { useSyncSessionAgents } from "@/hooks/useSyncSessionAgents";
 import { useFloorConfig } from "@/hooks/useFloorConfig";
 import {
   useGameStore,
@@ -142,6 +143,10 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   const { sessions, sessionsLoading, sessionId, setSessionId, fetchSessions } =
     useSessions(showStatus);
+
+  // Mantém sincronizado: 1 sprite AI_SILVER por sessão ativa (que não a atual),
+  // sentado na próxima mesa livre. Despawn quando sessão sai do active.
+  useSyncSessionAgents(sessions, sessionId);
 
   // ChatPanel (Pergunte ao Claude) chama `requestSessionSwitch(thread.id)`
   // sempre que a thread ativa muda — assim o WebSocket do painel passa a
