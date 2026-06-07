@@ -255,6 +255,12 @@ export function usePlayerControl(): void {
           if (store.userAvatarFacings.has(controlledEntityId)) {
             store.setUserAvatarFacing(controlledEntityId, "");
           }
+          // Walking implies standing up — clear the seated flag so the
+          // sprite renders the walking texture instead of the seated crop.
+          // (sem isso, badge anda mas corpo fica colado na cadeira.)
+          if (store.entitySeats.has(controlledEntityId)) {
+            store.setEntitySeated(controlledEntityId, null);
+          }
           const cur = store.userAvatarPositions.get(controlledEntityId);
           if (cur) {
             const next = resolveCollidedMove(
@@ -296,6 +302,16 @@ export function usePlayerControl(): void {
           if (!cur || !wp) {
             store.clearClickToMoveTarget();
           } else {
+            // Walking implies standing up. Same fix as WASD (acima): sem
+            // isso, o badge anda no path enquanto o corpo fica colado na
+            // cadeira. Skip se o destino É uma cadeira — chegando lá o
+            // setEntitySeated re-seta sozinho com a nova mesa.
+            if (
+              store.entitySeats.has(controlledEntityId) &&
+              !ctm.sittingTargetChair
+            ) {
+              store.setEntitySeated(controlledEntityId, null);
+            }
             const ddx = wp.x - cur.x;
             const ddy = wp.y - cur.y;
             const dist = Math.hypot(ddx, ddy);
