@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Jurídico Pro Design Tokens
+   Escritório Digital — Pedro Gama · Design Tokens
    Dark + dourado fosco. Aplicar em toda a UI chrome.
+   (Variáveis e classes mantêm o prefixo `jp-` por motivos históricos — é só
+   um identificador técnico interno, não aparece pro usuário.)
    ============================================================================ */
 :root {
   /* Brand */

@@ -493,10 +493,7 @@ export default function V2TestPage(): React.ReactNode {
               isMobile ? "text-lg" : "text-2xl"
             }`}
           >
-            <span className="text-jp-gold">Claude</span>
-            {!isMobile && (
-              <span className="hidden lg:inline">{t("app.title")}</span>
-            )}
+            <span className="text-jp-gold">Escritório Digital</span>
             {!isMobile && (
               <span className="text-xs font-mono font-normal leading-none px-2 py-0.5 h-[22px] bg-jp-surface-2 rounded text-jp-fg-muted border border-jp-divider inline-flex items-center">
                 v0.17.0

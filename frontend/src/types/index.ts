@@ -69,7 +69,7 @@ export interface Position {
 }
 
 /**
- * Whiteboard display mode index (0–11).
+ * Whiteboard display mode index (0–12).
  * Pure frontend concept — the backend has no equivalent.
  */
 export type WhiteboardMode =
@@ -84,7 +84,8 @@ export type WhiteboardMode =
   | 8 // News Ticker
   | 9 // Coffee
   | 10 // Heat Map
-  | 11; // Kanban Board — hotkey K
+  | 11 // Kanban Board — hotkey K
+  | 12; // Claudius Prompt — hotkey P
 
 /**
  * Shape of the optional event detail payload carried in WebSocket events.
