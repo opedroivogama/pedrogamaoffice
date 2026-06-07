@@ -8,6 +8,19 @@
 
 import { Position } from "@/types";
 import { getNavigationGrid, TILE_SIZE } from "./navigationGrid";
+import { getFootY, isFootprintWalkable } from "./footprintCollision";
+
+/** Helper que adapta o check ao entityId: com ele aplica footprint+offset
+ *  (mesma fórmula do A-star, keyboard e overlay), sem ele cai no
+ *  single-tile legado. Pedro 2026-06-07. */
+function isWorldPointWalkable(x: number, y: number, entityId?: string): boolean {
+  const grid = getNavigationGrid();
+  if (entityId) {
+    return isFootprintWalkable(grid, x, getFootY(y, entityId));
+  }
+  const gp = grid.worldToGrid(x, y);
+  return grid.isWalkable(gp.gx, gp.gy);
+}
 
 /**
  * Simplify path by removing collinear points.
@@ -55,9 +68,11 @@ export function removeCollinearPoints(path: Position[]): Position[] {
  * Check if a straight line between two points is walkable.
  * Uses Bresenham-like line sampling.
  */
-function isLineWalkable(start: Position, end: Position): boolean {
-  const grid = getNavigationGrid();
-
+function isLineWalkable(
+  start: Position,
+  end: Position,
+  entityId?: string,
+): boolean {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
@@ -69,9 +84,7 @@ function isLineWalkable(start: Position, end: Position): boolean {
     const t = i / steps;
     const x = start.x + dx * t;
     const y = start.y + dy * t;
-    const gridPos = grid.worldToGrid(x, y);
-
-    if (!grid.isWalkable(gridPos.gx, gridPos.gy)) {
+    if (!isWorldPointWalkable(x, y, entityId)) {
       return false;
     }
   }
@@ -83,7 +96,10 @@ function isLineWalkable(start: Position, end: Position): boolean {
  * Apply funnel algorithm to remove unnecessary waypoints.
  * Greedily tries to skip waypoints while maintaining valid path.
  */
-export function applyFunnelAlgorithm(path: Position[]): Position[] {
+export function applyFunnelAlgorithm(
+  path: Position[],
+  entityId?: string,
+): Position[] {
   if (path.length <= 2) return path;
 
   const result: Position[] = [path[0]];
@@ -94,7 +110,7 @@ export function applyFunnelAlgorithm(path: Position[]): Position[] {
     let furthest = current + 1;
 
     for (let i = path.length - 1; i > current + 1; i--) {
-      if (isLineWalkable(path[current], path[i])) {
+      if (isLineWalkable(path[current], path[i], entityId)) {
         furthest = i;
         break;
       }
@@ -124,15 +140,6 @@ function quadraticBezier(
 }
 
 /**
- * Check if a single point is walkable.
- */
-function isPointWalkable(point: Position): boolean {
-  const grid = getNavigationGrid();
-  const gridPos = grid.worldToGrid(point.x, point.y);
-  return grid.isWalkable(gridPos.gx, gridPos.gy);
-}
-
-/**
  * Check if all bezier curve sample points are walkable.
  */
 function isCurveWalkable(
@@ -140,11 +147,12 @@ function isCurveWalkable(
   controlPoint: Position,
   curveEnd: Position,
   samples: number,
+  entityId?: string,
 ): boolean {
   for (let j = 0; j <= samples; j++) {
     const t = j / samples;
     const point = quadraticBezier(curveStart, controlPoint, curveEnd, t);
-    if (!isPointWalkable(point)) {
+    if (!isWorldPointWalkable(point.x, point.y, entityId)) {
       return false;
     }
   }
@@ -159,6 +167,7 @@ function isCurveWalkable(
 export function applyBezierSmoothing(
   path: Position[],
   cornerRadius: number = TILE_SIZE * 0.75,
+  entityId?: string,
 ): Position[] {
   if (path.length <= 2) return path;
 
@@ -208,7 +217,7 @@ export function applyBezierSmoothing(
 
     // Check if all curve points are walkable before applying smoothing
     const samples = 4; // Number of intermediate points
-    if (!isCurveWalkable(curveStart, curr, curveEnd, samples)) {
+    if (!isCurveWalkable(curveStart, curr, curveEnd, samples, entityId)) {
       // Curve would pass through obstacle, keep original waypoint
       result.push(curr);
       continue;
@@ -232,17 +241,17 @@ export function applyBezierSmoothing(
  * @param path - Raw grid-aligned path from A*
  * @returns Smoothed path suitable for animation
  */
-export function smoothPath(path: Position[]): Position[] {
+export function smoothPath(path: Position[], entityId?: string): Position[] {
   if (path.length <= 1) return path;
 
   // Step 1: Remove collinear points
   let smoothed = removeCollinearPoints(path);
 
   // Step 2: Apply funnel algorithm to skip unnecessary waypoints
-  smoothed = applyFunnelAlgorithm(smoothed);
+  smoothed = applyFunnelAlgorithm(smoothed, entityId);
 
   // Step 3: Apply bezier smoothing at corners
-  smoothed = applyBezierSmoothing(smoothed);
+  smoothed = applyBezierSmoothing(smoothed, undefined, entityId);
 
   // Step 4: Final cleanup - remove any duplicate adjacent points
   return removeDuplicatePoints(smoothed);

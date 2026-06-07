@@ -73,8 +73,9 @@ export function calculatePath(
     return rawPath.length > 0 ? rawPath : [start];
   }
 
-  // Smooth the path for natural movement
-  const smoothed = smoothPath(rawPath);
+  // Smooth the path for natural movement — propaga entityId pro funnel
+  // e bezier não cortarem caminho por dentro de wall.
+  const smoothed = smoothPath(rawPath, entityId);
 
   // Ensure we start and end at exact positions
   if (smoothed.length >= 2) {
