@@ -7,6 +7,7 @@ import {
   ArrowUpWideNarrow,
   ChevronDown,
   ChevronRight,
+  FolderInput,
   LayoutGrid,
   Monitor,
   Pin,
@@ -24,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SessionsBrowserModal from "@/components/overlay/SessionsBrowserModal";
 import type { Session } from "@/hooks/useSessions";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useNavigationStore } from "@/stores/navigationStore";
 import { useSessionsBrowserStore } from "@/stores/sessionsBrowserStore";
 import { usePinnedFoldersStore } from "@/stores/pinnedFoldersStore";
 import {
@@ -133,7 +135,10 @@ export function SessionsPanel(): React.ReactNode {
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [floorMenuFor, setFloorMenuFor] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const buildingFloors = useNavigationStore((s) => s.buildingConfig?.floors ?? []);
   const lastAutoExpandedSessionRef = useRef<string | null>(null);
 
   // Bucket collapse state — default-collapsed buckets (e.g. "Anteriores")
@@ -328,6 +333,28 @@ export function SessionsPanel(): React.ReactNode {
       // Silent — 5s poll will catch up.
     }
   }, []);
+
+  const handleMoveToFloor = useCallback(
+    async (
+      sessionId: string,
+      floorId: string | null,
+      roomId: string | null,
+    ) => {
+      try {
+        await fetch(`http://localhost:8000/api/v1/sessions/${sessionId}/floor`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ floor_id: floorId, room_id: roomId }),
+        });
+        window.dispatchEvent(new CustomEvent("sessions-refresh"));
+      } catch {
+        // Silent — 5s poll will catch up.
+      } finally {
+        setFloorMenuFor(null);
+      }
+    },
+    [],
+  );
 
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((prev) => {
@@ -632,6 +659,28 @@ export function SessionsPanel(): React.ReactNode {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          setFloorMenuFor(
+                            floorMenuFor === primary.id ? null : primary.id,
+                          );
+                        }}
+                        className={`p-1 hover:bg-jp-surface-2 rounded transition-colors ${
+                          primary.floorPinned
+                            ? "text-jp-gold opacity-100"
+                            : "text-jp-fg-dim hover:text-jp-gold opacity-0 group-hover:opacity-100"
+                        }`}
+                        title={
+                          primary.floorPinned
+                            ? "Andar fixado manualmente — clique pra mudar"
+                            : "Mover pra outro andar"
+                        }
+                        aria-label={`Mover ${primary.id} pra outro andar`}
+                      >
+                        <FolderInput size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           onDeleteSession(primary);
                         }}
                         className="p-1 text-jp-fg-dim hover:text-rose-400 hover:bg-jp-surface-2 rounded transition-colors opacity-0 group-hover:opacity-100"
@@ -654,6 +703,58 @@ export function SessionsPanel(): React.ReactNode {
                         })}
                       </span>
                     </div>
+                    {floorMenuFor === primary.id && (
+                      <div
+                        className="mt-2 -mx-1 px-2 py-1.5 bg-jp-surface-3 border border-jp-divider rounded-md flex flex-col gap-0.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="text-[9px] uppercase tracking-wide text-jp-fg-dim font-bold pb-1">
+                          Mover pra
+                        </div>
+                        {buildingFloors.map((f) => {
+                          const isCurrent = primary.floorId === f.id;
+                          const firstRoomId = f.rooms[0]?.id ?? null;
+                          return (
+                            <button
+                              key={f.id}
+                              type="button"
+                              disabled={isCurrent}
+                              onClick={() =>
+                                void handleMoveToFloor(
+                                  primary.id,
+                                  f.id,
+                                  firstRoomId,
+                                )
+                              }
+                              className={`flex items-center gap-1.5 px-2 py-1 text-[11px] rounded text-left transition-colors ${
+                                isCurrent
+                                  ? "bg-jp-surface-2 text-jp-gold cursor-default"
+                                  : "text-jp-fg hover:bg-jp-surface-2 hover:text-jp-gold"
+                              }`}
+                            >
+                              <span>{f.icon}</span>
+                              <span className="flex-1">{f.name}</span>
+                              {isCurrent && (
+                                <span className="text-[9px] text-jp-fg-dim">
+                                  atual
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                        <div className="border-t border-jp-divider-soft my-1" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleMoveToFloor(primary.id, null, null)
+                          }
+                          className="px-2 py-1 text-[10px] text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded text-left italic transition-colors"
+                          title="Volta o andar pro mapeamento automático por pasta"
+                        >
+                          ↺ Auto (mapeia pela pasta)
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {rest.length > 0 && (

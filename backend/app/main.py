@@ -122,6 +122,7 @@ async def _migrate_schema(conn: AsyncConnection) -> None:
         "is_lead": "BOOLEAN DEFAULT 0",
         "is_pinned": "BOOLEAN DEFAULT 0",
         "archived_at": "DATETIME DEFAULT NULL",
+        "floor_pinned": "BOOLEAN DEFAULT 0",
         "terminal_pid": "INTEGER DEFAULT NULL",
         "last_cwd": "TEXT DEFAULT NULL",
     }

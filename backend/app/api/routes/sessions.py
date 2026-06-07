@@ -67,6 +67,7 @@ class SessionSummary(TypedDict):
     isPinned: bool
     archivedAt: str | None
     awaitingInput: bool
+    floorPinned: bool
 
 
 # Event types that mean Claude Code is waiting for the user to respond.
@@ -233,6 +234,7 @@ async def list_sessions(
                     "isPinned": rec.is_pinned,
                     "archivedAt": archived_at_str,
                     "awaitingInput": last_event_type in _AWAITING_EVENT_TYPES,
+                    "floorPinned": rec.floor_pinned,
                 }
             )
         return sessions
@@ -321,6 +323,61 @@ async def update_session(
         await db.rollback()
         logger.exception("Error in update_session: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update session") from e
+
+
+class FloorAssignment(BaseModel):
+    """Request body for manually assigning a session to a floor."""
+
+    floor_id: str | None = None
+    room_id: str | None = None
+
+
+@router.patch("/{session_id}/floor")
+async def update_session_floor(
+    session_id: str,
+    body: FloorAssignment,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """Manually assign a session to a floor (and optional room).
+
+    Sets ``floor_pinned=True`` so subsequent events from the event_processor
+    do not overwrite the manual choice. To restore auto-mapping, send
+    ``floor_id=null`` — that clears the assignment AND unpins.
+
+    Args:
+        session_id: Identifier for the session.
+        body: ``floor_id`` and optional ``room_id``. Both null = unpin.
+        db: Database session dependency.
+
+    Returns:
+        Status payload with the new floor assignment.
+
+    Raises:
+        HTTPException: If the session is not found or update fails.
+    """
+    try:
+        result = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session.floor_id = body.floor_id
+        session.room_id = body.room_id
+        session.floor_pinned = body.floor_id is not None
+        await db.commit()
+        return {
+            "status": "success",
+            "floorId": session.floor_id,
+            "roomId": session.room_id,
+            "floorPinned": session.floor_pinned,
+        }
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error in update_session_floor: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update floor") from e
 
 
 @router.post("/{session_id}/pin")

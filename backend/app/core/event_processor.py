@@ -472,9 +472,7 @@ class EventProcessor:
         # event types that follow a typical /rename moment. Broadcast first
         # so clients refetch BEFORE the event toast is built.
         if event.event_type in _RENAME_REFRESH_EVENT_TYPES:
-            transcript_path = (
-                event.data.transcript_path if event.data else None
-            )
+            transcript_path = event.data.transcript_path if event.data else None
             if transcript_path:
                 try:
                     async with AsyncSessionLocal() as db:
@@ -781,7 +779,9 @@ class EventProcessor:
             session_rec = result.scalar_one()
 
             # Persist floor/room assignment in the same session/transaction.
-            if floor_id and room_id:
+            # Skip when the user has manually pinned the floor — manual choice
+            # always wins over auto-mapping by path.
+            if floor_id and room_id and not session_rec.floor_pinned:
                 session_rec.floor_id = floor_id
                 session_rec.room_id = room_id
 

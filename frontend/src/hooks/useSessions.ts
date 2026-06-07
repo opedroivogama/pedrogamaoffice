@@ -29,6 +29,7 @@ export interface Session {
   isPinned: boolean;
   archivedAt: string | null;
   awaitingInput: boolean;
+  floorPinned: boolean;
 }
 
 // ============================================================================
