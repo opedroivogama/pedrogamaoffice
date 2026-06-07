@@ -3,8 +3,8 @@
 /**
  * Whiteboard - Office whiteboard display with multiple modes.
  *
- * Click anywhere on the whiteboard to cycle through 12 display modes.
- * Keyboard shortcuts: 0-9 jump to that mode, T = Todo, B = Background Tasks, K = Kanban
+ * Click anywhere on the whiteboard to cycle through 13 display modes.
+ * Keyboard shortcuts: 0-9 jump to that mode, T = Todo, B = Background Tasks, K = Kanban, P = Prompt
  *
  * 0: Todo List (default)
  * 1: Remote Workers (background task status)
@@ -18,6 +18,7 @@
  * 9: Coffee (coffee cup tracker)
  * 10: Heat Map (file edit frequency) - click to reach from mode 9
  * 11: Kanban Board (task tracking with TODO/IN PROGRESS/DONE columns)
+ * 12: Claudius Prompt - hotkey P (prompt ativo do Claudius como ticker)
  */
 
 import { Graphics, type Texture } from "pixi.js";
@@ -37,6 +38,7 @@ import { NewsTickerMode } from "./whiteboard/NewsTickerMode";
 import { CoffeeMode } from "./whiteboard/CoffeeMode";
 import { HeatMapMode } from "./whiteboard/HeatMapMode";
 import { KanbanMode } from "./whiteboard/KanbanMode";
+import { ClaudiusPromptMode } from "./whiteboard/ClaudiusPromptMode";
 import { MODE_INFO } from "./whiteboard/WhiteboardModeRegistry";
 
 // ============================================================================
@@ -145,10 +147,10 @@ function WhiteboardFrame({
 
       {/* Mode indicator dots */}
       <pixiContainer x={165} y={193}>
-        {Array.from({ length: 12 }).map((_, i) => (
+        {Array.from({ length: 13 }).map((_, i) => (
           <pixiGraphics
             key={i}
-            x={(i - 5.5) * 10}
+            x={(i - 6) * 10}
             draw={(g: Graphics) => {
               g.clear();
               g.circle(0, 0, i === mode ? 4 : 2);
@@ -207,6 +209,9 @@ export function Whiteboard({ todos, frameTexture }: WhiteboardProps): ReactNode 
         case "k":
           setMode(11);
           break;
+        case "p":
+          setMode(12);
+          break;
       }
     };
 
@@ -261,6 +266,8 @@ export function Whiteboard({ todos, frameTexture }: WhiteboardProps): ReactNode 
         return <HeatMapMode data={whiteboardData} />;
       case 11:
         return <KanbanMode data={whiteboardData} />;
+      case 12:
+        return <ClaudiusPromptMode />;
       default:
         return <TodoListMode todos={todos} />;
     }
