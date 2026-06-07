@@ -157,7 +157,7 @@ async def _sync_local_md() -> None:
     notes_sorted = sorted(notes, key=lambda n: n.get("created_at") or "")
 
     lines: list[str] = [
-        "# Notas Jurídico Pro",
+        "# Notas — Escritório Digital Pedro Gama",
         "",
         "<!-- Gerado automaticamente pelo painel. Editar à mão é sobrescrito no próximo save. -->",
         "",

@@ -1,4 +1,4 @@
-# Notas Jurídico Pro
+# Notas — Escritório Digital Pedro Gama
 
 <!-- Gerado automaticamente pelo painel. Editar à mão é sobrescrito no próximo save. -->
 

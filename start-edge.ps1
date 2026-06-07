@@ -3,11 +3,11 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir  = Join-Path $root 'backend'
 $frontendDir = Join-Path $root 'frontend'
 
-$Host.UI.RawUI.WindowTitle = 'Jurídico Pro — Painel'
+$Host.UI.RawUI.WindowTitle = 'Escritório Digital — Pedro Gama'
 Write-Host ''
-Write-Host '============================================' -ForegroundColor Cyan
-Write-Host '  Jurídico Pro — painel da empresa'           -ForegroundColor Cyan
-Write-Host '============================================' -ForegroundColor Cyan
+Write-Host '=================================================' -ForegroundColor Cyan
+Write-Host '  Escritório Digital — Pedro Gama'                 -ForegroundColor Cyan
+Write-Host '=================================================' -ForegroundColor Cyan
 Write-Host '  Backend  -> http://localhost:8000'
 Write-Host '  Frontend -> http://localhost:3000  (abre no Microsoft Edge)'
 Write-Host ''
@@ -39,7 +39,7 @@ if ($backendResponding) {
             '-NoExit',
             '-NoProfile',
             '-Command',
-            "`$Host.UI.RawUI.WindowTitle = 'JP Backend (uvicorn)'; Set-Location '$backendDir'; uv run python -X utf8 -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+            "`$Host.UI.RawUI.WindowTitle = 'Backend (uvicorn) — Escritório Digital'; Set-Location '$backendDir'; uv run python -X utf8 -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
         ) `
         -WindowStyle Normal `
         -PassThru
@@ -58,7 +58,7 @@ if ($frontendUp) {
             '-NoExit',
             '-NoProfile',
             '-Command',
-            "`$Host.UI.RawUI.WindowTitle = 'JP Frontend (next dev)'; Set-Location '$frontendDir'; npm run dev"
+            "`$Host.UI.RawUI.WindowTitle = 'Frontend (next dev) — Escritório Digital'; Set-Location '$frontendDir'; npm run dev"
         ) `
         -WindowStyle Normal `
         -PassThru
