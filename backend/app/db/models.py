@@ -33,6 +33,10 @@ class SessionRecord(Base):
     team_name: Mapped[str | None] = mapped_column(String, nullable=True)
     teammate_name: Mapped[str | None] = mapped_column(String, nullable=True)
     is_lead: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     terminal_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_cwd: Mapped[str | None] = mapped_column(String, nullable=True)
 

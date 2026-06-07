@@ -1,8 +1,9 @@
+import asyncio
 import importlib
 import logging
 import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,7 +16,17 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import boss, chat, collision, events, floors, launcher, notes, preferences, sessions
+from app.api.routes import (
+    boss,
+    chat,
+    collision,
+    events,
+    floors,
+    launcher,
+    notes,
+    preferences,
+    sessions,
+)
 from app.api.websocket import (
     manager,
 )
@@ -109,6 +120,8 @@ async def _migrate_schema(conn: AsyncConnection) -> None:
         "team_name": "TEXT DEFAULT NULL",
         "teammate_name": "TEXT DEFAULT NULL",
         "is_lead": "BOOLEAN DEFAULT 0",
+        "is_pinned": "BOOLEAN DEFAULT 0",
+        "archived_at": "DATETIME DEFAULT NULL",
         "terminal_pid": "INTEGER DEFAULT NULL",
         "last_cwd": "TEXT DEFAULT NULL",
     }
@@ -139,7 +152,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     git_service.start()
 
+    refresh_names_task = asyncio.create_task(_refresh_display_names_loop())
+
     yield
+
+    refresh_names_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await refresh_names_task
 
     await git_service.stop()
     await get_engine().dispose()
@@ -181,20 +200,46 @@ async def _refresh_display_names_at_startup() -> None:
     session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     async with session_factory() as db:
         try:
-            scanned, updated, _ = await refresh_display_names_from_transcripts(
-                db, broadcast=False
-            )
+            scanned, updated, _ = await refresh_display_names_from_transcripts(db, broadcast=False)
             if updated > 0:
                 refresh_logger.info(
-                    "Refreshed %d display name(s) from JSONL transcripts "
-                    "(scanned %d)",
+                    "Refreshed %d display name(s) from JSONL transcripts (scanned %d)",
                     updated,
                     scanned,
                 )
         except Exception as exc:  # noqa: BLE001 — don't block startup on this
-            refresh_logger.warning(
-                "Skipped display-name refresh at startup: %s", exc
-            )
+            refresh_logger.warning("Skipped display-name refresh at startup: %s", exc)
+
+
+_REFRESH_NAMES_INTERVAL_SECONDS = 60
+
+
+async def _refresh_display_names_loop() -> None:
+    """Periodically refresh session display names from JSONL transcripts.
+
+    Runs every 60s after startup. Picks up Claude Code ai-titles that
+    arrived after the session record was first inserted (which is why
+    sessions show up as raw "escritorio online" / "C--Users-..." until
+    Claude generates a title).
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.api.routes.sessions import refresh_display_names_from_transcripts
+
+    refresh_logger = logging.getLogger("claude-office.refresh-names")
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+
+    while True:
+        try:
+            await asyncio.sleep(_REFRESH_NAMES_INTERVAL_SECONDS)
+            async with session_factory() as db:
+                _, updated, _ = await refresh_display_names_from_transcripts(db, broadcast=True)
+                if updated > 0:
+                    refresh_logger.info("Auto-refresh: updated %d display name(s)", updated)
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:  # noqa: BLE001 — keep the loop alive
+            refresh_logger.warning("Auto-refresh tick failed: %s", exc)
 
 
 app = FastAPI(

@@ -64,6 +64,8 @@ class SessionSummary(TypedDict):
     eventCount: int
     floorId: str | None
     roomId: str | None
+    isPinned: bool
+    archivedAt: str | None
 
 
 class ReplayEvent(TypedDict):
@@ -90,6 +92,7 @@ async def list_sessions(
     floor_id: str | None = None,
     status: str | None = None,
     limit: int = 100,
+    include_archived: bool = False,
 ) -> list[SessionSummary]:
     """List sessions with event counts.
 
@@ -137,6 +140,8 @@ async def list_sessions(
             stmt = stmt.where(SessionRecord.floor_id == floor_id)
         if status is not None:
             stmt = stmt.where(SessionRecord.status == status)
+        if not include_archived:
+            stmt = stmt.where(SessionRecord.archived_at.is_(None))
 
         stmt = stmt.limit(min(limit, 500))
         result = await db.execute(stmt)
@@ -173,6 +178,15 @@ async def list_sessions(
                 else rec.updated_at.replace(tzinfo=UTC)
             )
 
+            archived_at_str: str | None = None
+            if rec.archived_at is not None:
+                archived_utc = (
+                    rec.archived_at.astimezone(UTC)
+                    if rec.archived_at.tzinfo
+                    else rec.archived_at.replace(tzinfo=UTC)
+                )
+                archived_at_str = archived_utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
             sessions.append(
                 {
                     "id": rec.id,
@@ -186,6 +200,8 @@ async def list_sessions(
                     "eventCount": count,
                     "floorId": rec.floor_id,
                     "roomId": rec.room_id,
+                    "isPinned": rec.is_pinned,
+                    "archivedAt": archived_at_str,
                 }
             )
         return sessions
@@ -274,6 +290,88 @@ async def update_session(
         await db.rollback()
         logger.exception("Error in update_session: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update session") from e
+
+
+@router.post("/{session_id}/pin")
+async def toggle_session_pin(
+    session_id: str, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    """Toggle the pinned state of a session.
+
+    Pinned sessions appear in their own bucket at the top of the sidebar,
+    independent of recency. Persisted in DB.
+
+    Args:
+        session_id: Identifier for the session to toggle.
+        db: Database session dependency.
+
+    Returns:
+        Status payload with the new pinned state.
+
+    Raises:
+        HTTPException: If the session is not found or update fails.
+    """
+    try:
+        result = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session.is_pinned = not session.is_pinned
+        await db.commit()
+        return {"status": "success", "isPinned": session.is_pinned}
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error in toggle_session_pin: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to toggle pin") from e
+
+
+@router.post("/{session_id}/archive")
+async def toggle_session_archive(
+    session_id: str, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    """Toggle the archived state of a session.
+
+    Archiving hides the session from the default list (caller must pass
+    ``include_archived=true`` to see archived sessions). Unarchiving clears
+    ``archived_at`` back to NULL.
+
+    Args:
+        session_id: Identifier for the session to toggle.
+        db: Database session dependency.
+
+    Returns:
+        Status payload with the new archivedAt value (ISO 8601 string or null).
+
+    Raises:
+        HTTPException: If the session is not found or update fails.
+    """
+    from datetime import datetime as _dt
+
+    try:
+        result = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        new_archived_at: _dt | None = _dt.now(UTC) if session.archived_at is None else None
+        session.archived_at = new_archived_at
+        await db.commit()
+
+        archived_at_str: str | None = None
+        if new_archived_at is not None:
+            archived_at_str = new_archived_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        return {"status": "success", "archivedAt": archived_at_str}
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error in toggle_session_archive: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to toggle archive") from e
 
 
 class RefreshNamesResult(TypedDict):
@@ -813,9 +911,7 @@ async def trigger_simulation() -> dict[str, str]:
 @router.get("/simulate/status")
 async def get_simulation_status() -> dict[str, bool]:
     """Return whether the background simulation process is currently alive."""
-    running = (
-        _simulation_process is not None and _simulation_process.poll() is None
-    )
+    running = _simulation_process is not None and _simulation_process.poll() is None
     return {"running": running}
 
 
