@@ -501,13 +501,20 @@ const initialState = {
     // Claudius sentado na mesa dele por padrão (Pedro 2026-06-06). Só sai
     // quando o Pedro remove manualmente (clique no Claudius pra levantar).
     ["boss", { x: 460, y: 900, deskTopY: 930 }],
+    // Pedro Samurai sentado na cadeira dele ao carregar (Pedro 2026-06-07).
+    // CHAIRS[9] em src/constants/chairs.ts. Sair só ao apertar WASD ou
+    // clicar em outro lugar — usePlayerControl limpa o seat (commit e541a08).
+    ["pedro-samurai", { x: 820, y: 880, deskTopY: 910 }],
   ]),
   bossWalkTarget: null as Position | null,
   userAvatarPositions: new Map<string, Position>([
     ["pedro", { x: 950, y: 870 }],
     ["estagiario", { x: 1130, y: 870 }],
     ["chrome-dummy", { x: 770, y: 870 }],
-    ["pedro-samurai", { x: 820, y: 990 }],
+    // Pedro samurai default = cadeira dele (CHAIRS[9] em src/constants/chairs.ts).
+    // Combinado com o entitySeats default abaixo, ele já nasce sentado na sua
+    // mesa quando o painel carrega.
+    ["pedro-samurai", { x: 820, y: 880 }],
   ]),
   userAvatarsHydrated: false,
   userAvatarBubbles: new Map<string, string>(),
@@ -952,6 +959,10 @@ export const useGameStore = create<GameStore>()(
         set((state) => {
           const merged = new Map(state.userAvatarPositions);
           for (const [id, raw] of Object.entries(parsed as Record<string, unknown>)) {
+            // Pedro Samurai sempre carrega sentado na cadeira dele (Pedro
+            // 2026-06-07). Qualquer posição salva pra pedro-samurai é
+            // ignorada — ele volta ao default toda vez que o painel inicia.
+            if (id === "pedro-samurai") continue;
             if (
               raw &&
               typeof raw === "object" &&
