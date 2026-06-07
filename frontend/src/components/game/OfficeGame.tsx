@@ -330,6 +330,7 @@ function PathErrorToast(): ReactNode {
 function PlumbobOverlay(): ReactNode {
   const controlledId = useGameStore((s) => s.controlledEntityId);
   const bossPos = useGameStore((s) => s.boss.position);
+  const bossChair = useGameStore((s) => s.entitySeats.get("boss") ?? null);
   const userPos = useGameStore((s) =>
     controlledId ? s.userAvatarPositions.get(controlledId) : undefined,
   );
@@ -341,9 +342,21 @@ function PlumbobOverlay(): ReactNode {
   let y: number;
   let plumbobY: number;
   if (controlledId === "boss") {
-    x = bossPos.x;
-    y = bossPos.y;
-    plumbobY = -240; // ~12px acima do topo do Claudius em pé
+    // Sentado vs em pé: crânio do Claudius sentado fica bem mais baixo
+    // (sprite cropado, topo escondido pelo hideOffset). Pedro pediu o
+    // plumbob mais perto da cabeça (2026-06-07).
+    if (bossChair) {
+      x = bossChair.x;
+      y = bossChair.deskTopY;
+      // Calcado no BossSprite: topo do crânio sentado ≈ parent.y=-24 +
+      // hideOffset - renderSize*(1-topPad) com renderSize=282, hide=0.42,
+      // topPad=58/248 → ≈ -122. Plumbob 12px acima = -134.
+      plumbobY = -134;
+    } else {
+      x = bossPos.x;
+      y = bossPos.y;
+      plumbobY = -240; // ~12px acima do topo do Claudius em pé
+    }
   } else if (userPos) {
     // Se sentado, ancora visualmente na cadeira e ajusta o offset pra que
     // a distância plumbob↔crânio seja a mesma da versão em pé.
@@ -1624,6 +1637,23 @@ export function OfficeGame(): ReactNode {
   // Desk positions for Y-sorted rendering
   const deskPositions = useDeskPositions(deskCount, occupiedDesks);
 
+  // Mesas que têm alguém sentado — usadas pra elevar o zIndex do tampo
+  // SÓ pra essas mesas, garantindo que o tampo cubra o personagem sentado
+  // sem afetar mesas vazias. Pedro 2026-06-07.
+  const entitySeatsForDeskTop = useGameStore((s) => s.entitySeats);
+  const occupiedDeskKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const c of entitySeatsForDeskTop.values()) {
+      keys.add(`${c.x}|${Math.round(c.deskTopY)}`);
+    }
+    return keys;
+  }, [entitySeatsForDeskTop]);
+  const isDeskOccupied = useCallback(
+    (desk: { x: number; y: number }) =>
+      occupiedDeskKeys.has(`${desk.x}|${Math.round(desk.y + 6)}`),
+    [occupiedDeskKeys],
+  );
+
   // Split da textura da mesa em "top fatia" (só o tampo) + "bottom"
   // (resto). Pedro 2026-06-06: top em 50% deixava o tampo grande demais
   // e cobria a cabeça do personagem quando ele andava bem atrás. Reduzido
@@ -2006,7 +2036,12 @@ export function OfficeGame(): ReactNode {
                         const baseZ = desk.y + topVisual + 60;
                         // Tampo zIndex = desk.y + 60 (acima de cadeira/sentado,
                         // abaixo de qualquer personagem com foot.y > desk.y+60).
-                        const topZ = desk.y + 60;
+                        // EXCEÇÃO: se tem alguém sentado nessa mesa, eleva
+                        // o zIndex pra garantir que o tampo + monitor fiquem
+                        // SEMPRE na frente do sentado (Pedro 2026-06-07).
+                        const topZ = isDeskOccupied(desk)
+                          ? 999_000
+                          : desk.y + 60;
                         return (
                           <Fragment key={`desk-${i}`}>
                             <pixiContainer
