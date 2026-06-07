@@ -144,6 +144,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await _migrate_schema(conn)
 
     await _reap_stale_sessions()
+    await _seed_building_config_from_toml_if_empty()
     await _refresh_display_names_at_startup()
 
     from app.core.terminal_focus import warm_pid_cache_from_db
@@ -182,6 +183,64 @@ async def _reap_stale_sessions() -> None:
         count = int(str(getattr(result, "rowcount", 0)))
         if count > 0:
             reap_logger.info("Reaped %d stale sessions (inactive >48h)", count)
+
+
+async def _seed_building_config_from_toml_if_empty() -> None:
+    """Populate user_preferences.building_config from floors.toml on first boot.
+
+    The backend reads building config from the user_preferences table at runtime
+    (see app/api/routes/floors.py + app/core/floor_config.py). The repo's
+    floors.toml is only consulted for dev/testing — if you edit it without
+    seeding the DB, the change is invisible.
+
+    This one-shot seeder runs on every startup but only writes when the
+    preference row is absent. To force a re-sync after editing floors.toml,
+    delete the preference row (or call this function manually).
+    """
+    import json
+    from pathlib import Path
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.core.floor_config import (
+        BUILDING_CONFIG_KEY,
+        DEFAULT_TOML_PATH,
+        invalidate_building_config,
+        load_building_config_from_toml,
+    )
+    from app.db.models import UserPreference
+
+    seed_logger = logging.getLogger("claude-office.seed-floors")
+    toml_path = Path(DEFAULT_TOML_PATH)
+    if not toml_path.exists():
+        return
+
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    async with session_factory() as db:
+        result = await db.execute(
+            select(UserPreference).where(UserPreference.key == BUILDING_CONFIG_KEY)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return
+
+        try:
+            cfg = load_building_config_from_toml(toml_path=toml_path)
+        except Exception as exc:  # noqa: BLE001 — don't block startup
+            seed_logger.warning("Could not parse %s: %s", toml_path, exc)
+            return
+
+        if not cfg.floors:
+            return
+
+        payload = json.dumps(cfg.model_dump(by_alias=True))
+        db.add(UserPreference(key=BUILDING_CONFIG_KEY, value=payload))
+        await db.commit()
+        invalidate_building_config()
+        seed_logger.info(
+            "Seeded building_config from %s (%d floor(s))", toml_path.name, len(cfg.floors)
+        )
 
 
 async def _refresh_display_names_at_startup() -> None:
