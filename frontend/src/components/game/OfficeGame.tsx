@@ -346,7 +346,10 @@ function PlumbobOverlay(): ReactNode {
     // (sprite cropado, topo escondido pelo hideOffset). Pedro pediu o
     // plumbob mais perto da cabeça (2026-06-07).
     if (bossChair) {
-      x = bossChair.x;
+      // +5 no x compensa o offset que o BossSprite aplica internamente no
+      // sprite e na badge (`x={5}` dentro do root em BOSS_POSITION). Sem
+      // isso, o plumbob ficava 5px à esquerda da badge/sprite. (Pedro 2026-06-07.)
+      x = bossChair.x + 5;
       y = bossChair.deskTopY;
       // PlumbobOverlay está em (chair.x, chair.deskTopY=930) e o BossSprite
       // root está em BOSS_POSITION=(640, 900) → diferença vertical de 30px
