@@ -1,64 +1,30 @@
-building_name = "Jurídico Pro"
+building_name = "Escritório Digital — Pedro Gama"
 
-# Andar único definido aqui = Comercial.
-# Os andares Claude Code do Pedro NÃO estão nesse arquivo de propósito — eles
-# vivem no DB (user_preferences.building_config), configurados via UI Settings.
-# O script `scripts/bridges/sync_floors_to_db.py` faz MERGE: empurra os andares
-# desse TOML pro DB SEM apagar os andares Claude que já existem lá.
+# Reset 2026-06-07: voltamos pra UM andar único.
 #
-# Convenção de source_id (campo `repos`): kebab-case, prefixo do andar.
-#   - comercial-recepcao-ia    → bridge JurisChat (IA Vanessa Recepção)
-#   - comercial-laura          → triagem humana (futuro bridge ou manual)
-#   - comercial-vanessa        → vendedora de tráfego (Vanessa humana, ≠ IA!)
-#   - comercial-gabriela       → vendedora de sites
-#   - comercial-pedro          → closer + diretor comercial
+# Operacional é o andar onde aparece tudo que o Claude Code está executando
+# agora — sessões reais via hooks. É o que a fork upstream sempre soube fazer
+# bem. Tudo que era placeholder/decorativo foi removido.
 #
-# Próximos andares JP (Mídia Paga, Operacional, Diretoria) virão depois,
-# um de cada vez, conforme os bridges forem prontos.
+# Convenção de source_id (campo `repos`): aceita o basename do dir (com
+# espaço ou kebab) e a forma "C--Users-..." que o hook Claude Code costuma
+# emitir.  Múltiplas variantes ficam aqui pra cobrir as diferentes formas que
+# o hook pode normalizar o nome.
+#
+# Próximos andares (Comercial, Clientes, Diretoria, Mídia Paga, etc.) voltam
+# UM POR VEZ, quando o bridge correspondente estiver produzindo eventos de
+# verdade — não como casca vazia. Os scripts em `scripts/bridges/` ficam
+# preservados pra reativação.
 
 [[floors]]
-name = "Comercial"
-floor_number = 5  # topo do prédio — fica acima dos andares Claude existentes
-accent = "#B8972A"  # JP Gold Primary — área motora da empresa
-icon = "🤝"
-# Comecei só com a sala que tem bridge funcionando. Quando construir bridge
-# pra Laura/Vanessa/Gabriela/Pedro (CRM, agenda, etc.), adicionar aqui.
-repos = [
-  "comercial-recepcao-ia",        # IA Vanessa Recepção (JurisChat bridge — visão "time atendendo")
-  "comercial-gabriel-projetos",   # Gabriel Carvalho — Head de Projetos/Performance (pós-venda)
-]
-
-[[floors]]
-name = "Clientes"
-floor_number = 6  # acima do Comercial (#5) — clientes no topo da pirâmide
-accent = "#E4C76B"  # JP Gold Light — clientes / leads ativos
-icon = "👥"
-# Mesma fonte do JurisChat, mas visão invertida: cada conversa ativa vira um
-# subagente nomeado pelo lead/cliente. Mostra QUEM está conversando agora,
-# em vez de QUEM da empresa está atendendo.
-repos = [
-  "clientes-ativos",   # JurisChat bridge — visão "clientes em atividade"
-]
-
-[[floors]]
-name = "Diretoria"
-floor_number = 7  # topo do prédio — diretoria/comando, acima de Clientes (#6)
-accent = "#D4AF37"  # Gold mais saturado — sala do Pedro + Claudius (mente da empresa)
-icon = "👔"
-# Andar onde caem as sessões Claude Code rodando NO próprio projeto escritorio
-# online (Claudius operando o painel da empresa) e também eventos diretos do
-# Pedro como diretor. O ProductMapper tenta casar nesta ordem:
-#   1. basename(project_dir) após walk-up até .git  → "escritorio online" (com espaço)
-#   2. project_name direto                          → variantes que o hook envia
-#   3. basename(working_dir)
-# Múltiplas variantes ficam aqui pra cobrir as diferentes formas que o hook
-# pode normalizar o nome (kebab vs espaço vs caminho-completo-com-dashes).
+name = "Operacional"
+floor_number = 5
+accent = "#B8972A"  # JP Gold Primary
+icon = "💻"
 repos = [
   "escritorio online",                                          # basename real do dir com .git
-  "escritorio-online",                                          # variante kebab (caso o hook normalize)
-  "C--Users-Pedro-Desktop-escritorio-online",                   # project_name estilo Claude Code (path → dashes)
-  "C--Users-Pedro-Desktop-escritorio-online-backend",           # idem, subdir backend
-  "C--Users-Pedro-Desktop-escritorio-online-frontend",          # idem, subdir frontend
-  "claudius",                                                   # source_id futuro pra eventos diretos do Claudius
-  "diretoria-pedro",                                            # source_id futuro pra eventos do Pedro como diretor
+  "escritorio-online",                                          # variante kebab
+  "C--Users-Pedro-Desktop-escritorio-online",                   # project_name estilo Claude Code
+  "C--Users-Pedro-Desktop-escritorio-online-backend",
+  "C--Users-Pedro-Desktop-escritorio-online-frontend",
 ]

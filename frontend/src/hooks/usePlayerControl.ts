@@ -13,7 +13,6 @@ export const CHARACTER_FOOT_OFFSET_Y: Record<string, number> = {
   boss: -40,
   pedro: -80,
   "pedro-samurai": -80,
-  "gestor-trafego": -80,
   estagiario: -60,
   "chrome-dummy": -60,
 };

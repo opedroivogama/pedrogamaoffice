@@ -68,7 +68,6 @@ import {
   type PedroDirectionalWalkFrames,
   type Direction8,
 } from "@/hooks/usePedroSprites";
-import { useGestorTrafegoSprites } from "@/hooks/useGestorTrafegoSprites";
 import { usePedroSamuraiSprites } from "@/hooks/usePedroSamuraiSprites";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -903,93 +902,6 @@ function UserAvatar({
 }
 
 // ============================================================================
-// LOBBY AGENT — NPC silver chibi estacionário que popula o lobby.
-// Anima a respiração (4 idle frames) mas não anda nem interage.
-// ============================================================================
-
-interface LobbyAgentProps {
-  label: string;
-  position: { x: number; y: number };
-  idleFrames: (Texture | null)[];
-  fallbackTexture: Texture | null;
-  size?: number;
-  topPaddingRatio?: number;
-  phase?: number;
-  idleFrameDurationMs?: number;
-}
-
-function LobbyAgent({
-  label,
-  position,
-  idleFrames,
-  fallbackTexture,
-  size = 200,
-  topPaddingRatio = 60 / 248,
-  phase = 0,
-  idleFrameDurationMs = 600,
-}: LobbyAgentProps): ReactNode {
-  const [idleFrameIdx, setIdleFrameIdx] = useState(phase);
-  useTick((ticker) => {
-    setIdleFrameIdx((idx) => idx + ticker.deltaMS / idleFrameDurationMs);
-  });
-  const frames = idleFrames.filter((f): f is Texture => f != null);
-  const tex =
-    frames.length > 0
-      ? frames[Math.floor(idleFrameIdx) % frames.length]
-      : fallbackTexture;
-  if (!tex) return null;
-  return (
-    <pixiContainer x={position.x} y={position.y} zIndex={position.y}>
-      <ContactShadow width={70} y={-58} alpha={0.245} />
-      <pixiSprite
-        texture={tex}
-        anchor={{ x: 0.5, y: 1 }}
-        x={0}
-        y={0}
-        width={size}
-        height={size}
-      />
-      <pixiContainer y={-(size * (1 - topPaddingRatio) + 8)}>
-        <pixiGraphics
-          draw={(g) => {
-            const pillW = Math.max(56, label.length * 10 + 18);
-            const pillH = 20;
-            g.clear();
-            g.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 6);
-            g.fill({ color: 0x0e0e0e, alpha: 0.9 });
-            g.stroke({ color: 0xb8972a, width: 1.5 });
-          }}
-        />
-        <pixiText
-          text={label}
-          anchor={0.5}
-          resolution={2}
-          style={{
-            fontFamily: "monospace",
-            fontSize: 15,
-            fill: 0xfde7b0,
-            fontWeight: "bold",
-          }}
-        />
-      </pixiContainer>
-    </pixiContainer>
-  );
-}
-
-const LOBBY_AGENTS: Array<{
-  id: string;
-  label: string;
-  position: { x: number; y: number };
-  phase: number;
-}> = [
-  { id: "lobby-agent-1", label: "Agente 1", position: { x: 240, y: 800 }, phase: 0.0 },
-  { id: "lobby-agent-2", label: "Agente 2", position: { x: 400, y: 870 }, phase: 1.1 },
-  { id: "lobby-agent-3", label: "Agente 3", position: { x: 560, y: 800 }, phase: 2.3 },
-  { id: "lobby-agent-4", label: "Agente 4", position: { x: 960, y: 820 }, phase: 0.7 },
-  { id: "lobby-agent-5", label: "Agente 5", position: { x: 1210, y: 870 }, phase: 1.8 },
-];
-
-// ============================================================================
 // PEDRO BUBBLE LAYER — desenha o balão do Pedro numa camada top-level pra
 // garantir que fica acima de qualquer personagem que passe na frente.
 // ============================================================================
@@ -1002,8 +914,6 @@ const USER_AVATAR_LABEL_CONFIGS: Array<{
   size: number;
   topPaddingRatio: number;
 }> = [
-  { id: "gestor-trafego", label: "Tráfego", size: 256, topPaddingRatio: 58 / 248 },
-  { id: "suporte-comercial", label: "Comercial", size: 256, topPaddingRatio: 58 / 248 },
   { id: "pedro-samurai", label: "Pedro", size: 282, topPaddingRatio: 58 / 248 },
 ];
 
@@ -1287,8 +1197,6 @@ export function OfficeGame(): ReactNode {
   } = useDefaultCharacterTexture();
   const { idle: pedroIdleFrames, walk: pedroWalkFrames } =
     usePedroSprites();
-  const { idle: gestorIdleFrames, walk: gestorWalkFrames } =
-    useGestorTrafegoSprites();
   const { idle: samuraiIdleFrames, walk: samuraiWalkFrames } =
     usePedroSamuraiSprites();
 
@@ -1592,11 +1500,18 @@ export function OfficeGame(): ReactNode {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [debugMode]);
 
-  // Reset pan/zoom only on actual window resize — NOT on container reflows.
-  // ResizeObserver was causing progressive canvas drift because the event log
-  // and sidebar content changes triggered micro-resizes on every update.
+
+  // Reset pan/zoom + centra a view no resize da janela. ResizeObserver foi
+  // evitado pra não disparar em micro-reflows (event log/sidebar).
+  // Pedro 2026-06-06: além do resetTransform, faz centerView no próximo
+  // frame pra recalcular bounds depois que o DOM termina o reflow.
   useEffect(() => {
-    const handleResize = () => transformRef.current?.resetTransform(0);
+    const handleResize = () => {
+      transformRef.current?.resetTransform(0);
+      requestAnimationFrame(() => {
+        transformRef.current?.centerView(undefined, 0);
+      });
+    };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -2020,58 +1935,11 @@ export function OfficeGame(): ReactNode {
                       );
                     })()}
 
-                    {/* UserAvatars (gestor/samurai) — cada um tem
-                        zIndex={position.y} interno; entram no Y-sort.
-                        PEDRO original removido em 2026-06-06 — substituído pelo
-                        pedro-samurai v10. */}
-                    {(floorId === LOBBY_FLOOR_ID || floorId === "comercial") && (
-                      <>
-                        <UserAvatar
-                          id="gestor-trafego"
-                          texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
-                          label="Tráfego"
-                          phase={1.7}
-                          waist={85}
-                          size={256}
-                          topPaddingRatio={58 / 248}
-                          directionalTextures={gestorIdleFrames}
-                          walkFrames={gestorWalkFrames}
-                          renderBubble={false}
-                          renderLabel={false}
-                          idleFrameDurationMs={600}
-                          withShadow
-                        />
-                        {/* Suporte Comercial — mesmo sprite do gestor, ID
-                            separado pra ter posição/estado próprios. */}
-                        <UserAvatar
-                          id="suporte-comercial"
-                          texture={gestorIdleFrames.south?.[0] ?? userSuitTexture}
-                          label="Comercial"
-                          phase={2.3}
-                          waist={85}
-                          size={256}
-                          topPaddingRatio={58 / 248}
-                          directionalTextures={gestorIdleFrames}
-                          walkFrames={gestorWalkFrames}
-                          renderBubble={false}
-                          renderLabel={false}
-                          idleFrameDurationMs={650}
-                          withShadow
-                        />
-                        {LOBBY_AGENTS.map((npc) => (
-                          <LobbyAgent
-                            key={npc.id}
-                            label={npc.label}
-                            position={npc.position}
-                            phase={npc.phase}
-                            idleFrames={aiSilverIdleFrames}
-                            fallbackTexture={
-                              aiSilverIdleTexture ?? chromeDummyTexture
-                            }
-                          />
-                        ))}
-                      </>
-                    )}
+                    {/* Pedro Samurai — único UserAvatar humano hoje. NPCs
+                        decorativos (gestor-trafego, suporte-comercial,
+                        LOBBY_AGENTS) removidos no reset 2026-06-07: voltam
+                        andar por andar quando os bridges produzirem dados
+                        de verdade. */}
                     <UserAvatar
                       id="pedro-samurai"
                       texture={samuraiIdleFrames.south?.[0] ?? userSuitTexture}
@@ -2130,7 +1998,6 @@ export function OfficeGame(): ReactNode {
                             state={boss.backendState}
                             bubble={boss.bubble.content}
                             inUseBy={boss.inUseBy}
-                            currentTask={boss.currentTask}
                             chairTexture={textures.chairRed ?? textures.chair}
                             deskTexture={textures.desk}
                             keyboardTexture={textures.keyboard}
