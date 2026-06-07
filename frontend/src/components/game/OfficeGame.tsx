@@ -113,6 +113,7 @@ import { useNavigationStore } from "@/stores/navigationStore";
 import { ALL_FLOOR_ID, LOBBY_FLOOR_ID } from "@/types/navigation";
 import {
   BOSS_POSITION,
+  PEDRO_DESK_POSITION,
   ELEVATOR_POSITION,
   isInElevatorZone,
 } from "@/systems/queuePositions";
@@ -374,14 +375,10 @@ function PlumbobOverlay(): ReactNode {
     const chair = findNearestChair(userPos, 30);
     if (chair) {
       x = chair.x;
-      // -11 acompanha o ajuste do anchor do sprite sentado (alinhamento
-      // com topo do tampo, Pedro 2026-06-07).
-      y = chair.deskTopY - 11;
-      // -133 calcado pra Pedro Samurai (size=282, topPad=63/248):
-      // crânio em container_y = 282*(63/248-0.58) ≈ -92
-      // badge center em -92-4 = -96 (pill h=22, top edge ≈ -107)
-      // plumbob bottom = y+22 deve ficar 4px acima da badge top
-      // → y = -107 - 4 - 22 = -133. (Pedro 2026-06-07 — fórmula corrigida.)
+      // -11 acompanha o ajuste do anchor do sprite sentado. Na cadeira do
+      // boss (y=900) desce 10px junto com sprite/badge. Pedro 2026-06-07.
+      const bossChairDrop = chair.y === 900 ? 25 : 0;
+      y = chair.deskTopY - 11 + bossChairDrop;
       plumbobY = -133;
     } else {
       x = userPos.x;
@@ -718,6 +715,10 @@ function UserAvatar({
   shadowWidth = 80,
 }: UserAvatarProps): ReactNode {
   const position = useGameStore((s) => s.userAvatarPositions.get(id));
+  // Espera o fetch de loadUserAvatarPositions resolver antes de renderizar.
+  // Sem isso, o sprite spawna na posição default e teleporta ~200ms depois
+  // quando o fetch volta com a posição persistida.
+  const positionsHydrated = useGameStore((s) => s.userAvatarsHydrated);
   const controlledEntityId = useGameStore((s) => s.controlledEntityId);
   const bubbleText = useGameStore((s) => s.userAvatarBubbles.get(id));
   const setUserAvatarBubble = useGameStore((s) => s.setUserAvatarBubble);
@@ -809,6 +810,9 @@ function UserAvatar({
   }, [clickToFocusEnabled, id, openFocusPopup, position]);
 
   if (!texture || !position) return null;
+  // Hold off until loadUserAvatarPositions() resolved — avoids spawn at
+  // default coords + visible teleport when the fetch arrives ~200ms later.
+  if (!positionsHydrated) return null;
 
   // Sentado só via click explícito (Pedro 2026-06-06): leia entitySeats.
   const chair = useGameStore(
@@ -832,10 +836,13 @@ function UserAvatar({
       frame: new Rectangle(0, 0, src.width, seatedSourceH),
     });
     const seatedRenderH = size * SEATED_CROP_RATIO;
+    // Pedro 2026-06-07: na cadeira do boss (y=900) desce o sprite 10px pra
+    // bater visualmente com a mesa daquela cadeira (que é maior).
+    const bossChairDrop = chair.y === 900 ? 25 : 0;
     return (
       <pixiContainer
         x={chair.x}
-        y={chair.deskTopY - 11}
+        y={chair.deskTopY - 11 + bossChairDrop}
         zIndex={chair.deskTopY + 44}
         onPointerTap={handleTap}
         interactive={clickToFocusEnabled}
@@ -995,11 +1002,14 @@ function UserAvatarLabelsLayer(): ReactNode {
           // `size*SEATED_CROP_RATIO*(1-topPaddingRatio)` jogava badge ~33px
           // acima do crânio real.
           labelX = chair.x;
+          // Boss chair (y=900) tem drop de 10px pra alinhar com mesa maior.
+          const bossChairDrop = chair.y === 900 ? 25 : 0;
           labelY =
             chair.deskTopY -
             11 +
             cfg.size * (cfg.topPaddingRatio - SEATED_CROP_RATIO) -
-            4;
+            4 +
+            bossChairDrop;
         } else {
           // 4px acima do topo do crânio em pé.
           labelX = pos.x;
@@ -1074,7 +1084,7 @@ export function OfficeGame(): ReactNode {
   useEffect(() => {
     if (!CLAUDIUS_PINNED_TO_DESK) return;
     const store = useGameStore.getState();
-    const chair = { x: 640, y: 900, deskTopY: 930 };
+    const chair = { x: 460, y: 900, deskTopY: 930 };
     if (!store.entitySeats.has("boss")) {
       store.setEntitySeated("boss", chair);
       store.setBossPosition({ x: chair.x, y: chair.y });
@@ -1254,11 +1264,11 @@ export function OfficeGame(): ReactNode {
     setSitConfirmBoss(false);
     const store = useGameStore.getState();
     store.setEntitySeated("boss", {
-      x: 640,
+      x: 460,
       y: 900,
       deskTopY: 930,
     });
-    store.setBossPosition({ x: 640, y: 900 });
+    store.setBossPosition({ x: 460, y: 900 });
   }, []);
 
   // Confirma → calcula path A* até a cadeira correspondente e dispara
@@ -2016,18 +2026,20 @@ export function OfficeGame(): ReactNode {
                       2026-06-06) pra permitir personagem passar atrás dela
                       mas na frente da cadeira. */}
                   <pixiContainer sortableChildren={true}>
-                    {/* Desk chairs - zIndex = desk.y + 44 (base visual da
-                        cadeira na tela; sprite y=30 + altura/2 ≈ 44).
-                        Personagem em pé com foot.y < (desk.y + 44) fica
-                        atrás da cadeira. Sentado/Tampo abaixo são puxados
-                        pra zIndex maior pra manter a ordem. Pedro 2026-06-07. */}
+                    {/* Desk chairs - zIndex = desk.y + 90 (compensa sprites
+                        grandes com padding inferior tipo Pedro Samurai
+                        size=282: zIndex pedro = position.y - 80, então
+                        precisa position.y > desk.y + 170 pra ficar na frente.
+                        Pedro 2026-06-07: garante que em pé atrás da mesa
+                        fique sempre coberto pela cadeira. Tampo sobe junto
+                        pra continuar na frente da cadeira. */}
                     {deskPositions.map((desk, i) => {
                       return (
                         <pixiContainer
                           key={`chair-${i}`}
                           x={desk.x}
                           y={desk.y}
-                          zIndex={desk.y + 44}
+                          zIndex={desk.y + 90}
                           eventMode="static"
                           cursor="pointer"
                           onPointerTap={() => handleDeskTap(desk)}
@@ -2060,14 +2072,16 @@ export function OfficeGame(): ReactNode {
                         // VISUAL passa BEM além da base da mesa. Pedro
                         // 2026-06-06.
                         const baseZ = desk.y + topVisual + 60;
-                        // Tampo zIndex = desk.y + 60 (acima de cadeira/sentado,
-                        // abaixo de qualquer personagem com foot.y > desk.y+60).
-                        // EXCEÇÃO: se tem alguém sentado nessa mesa, eleva
-                        // o zIndex pra garantir que o tampo + monitor fiquem
-                        // SEMPRE na frente do sentado (Pedro 2026-06-07).
+                        // Tampo zIndex = desk.y + 95 (acima da cadeira +90 e
+                        // do sentado deskTopY+44 ≈ desk.y+94, abaixo de
+                        // personagem com foot.y > desk.y+95). EXCEÇÃO: se
+                        // tem alguém sentado nessa mesa, eleva pra garantir
+                        // que tampo+monitor fiquem SEMPRE na frente do sentado.
+                        // Pedro 2026-06-07: subido de +60 pra +95 junto com
+                        // cadeira, pra preservar ordem cadeira < tampo.
                         const topZ = isDeskOccupied(desk)
                           ? 999_000
-                          : desk.y + 60;
+                          : desk.y + 95;
                         return (
                           <Fragment key={`desk-${i}`}>
                             <pixiContainer
@@ -2271,6 +2285,93 @@ export function OfficeGame(): ReactNode {
                         );
                       })()}
                     </pixiContainer>
+
+                    {/* Mesa do Pedro — visual idêntico ao mobiliário do
+                        Claudius (mesma sprite + cadeira preta), mas SEM o
+                        BossSprite. Render inline pra evitar herdar o
+                        onPointerTap=openFocusPopup("boss") que está hardcoded
+                        no BossSprite. Click chama handleDeskTap (mesmo fluxo
+                        das mesas dos agents). Pedro 2026-06-07. */}
+                    {/* Mesa do Pedro em DUAS camadas Y-sortadas pra que o
+                        tampo cubra o personagem sentado (igual o padrão das
+                        mesas do grid: desk.y+80). Camada 1 (sombra+cadeira)
+                        fica ATRÁS do personagem; camada 2 (tampo da mesa)
+                        fica NA FRENTE. */}
+
+                    {/* Camada 1: sombra + cadeira azul — atrás do personagem
+                        sentado mas com encosto visível acima dele.
+                        zIndex = +70 (deskTopY-PEDRO_DESK_POSITION.y=30, então
+                        sentado zIndex=deskTopY+44=974; cadeira +70=970, 4
+                        abaixo do sentado igual padrão das mesas normais).
+                        Cadeira y={30} alinha com sprite das mesas normais
+                        (encosto + assento visíveis). Pedro 2026-06-07. */}
+                    <pixiContainer
+                      x={PEDRO_DESK_POSITION.x}
+                      y={PEDRO_DESK_POSITION.y}
+                      zIndex={PEDRO_DESK_POSITION.y + 70}
+                      eventMode="static"
+                      cursor="pointer"
+                      onPointerTap={() => handleDeskTap(PEDRO_DESK_POSITION)}
+                    >
+                      <ContactShadow width={170} height={26} y={50} alpha={0.4} />
+                      {textures.chair && (
+                        <pixiSprite
+                          texture={textures.chair}
+                          anchor={0.5}
+                          x={0}
+                          y={30}
+                          scale={0.1386}
+                        />
+                      )}
+                    </pixiContainer>
+
+                    {/* Camada 1.5: pernas da mesa (bottom split) — atrás do
+                        personagem sentado/cadeira pra Y-sort funcionar.
+                        Pedro 2026-06-07: split equivalente ao das mesas
+                        normais pra encosto da cadeira ficar visível. */}
+                    {deskTextureSplit && (
+                      <pixiContainer
+                        x={PEDRO_DESK_POSITION.x}
+                        y={PEDRO_DESK_POSITION.y}
+                        zIndex={
+                          PEDRO_DESK_POSITION.y +
+                          deskTextureSplit.topHeightCanvas * 0.21 +
+                          60
+                        }
+                      >
+                        <pixiSprite
+                          texture={deskTextureSplit.bottom}
+                          anchor={{ x: 0.5, y: 0 }}
+                          x={-25}
+                          y={-5 + deskTextureSplit.topHeightCanvas * 0.21}
+                          scale={{ x: 0.27, y: 0.21 }}
+                        />
+                      </pixiContainer>
+                    )}
+
+                    {/* Camada 2: tampo da mesa (top split) — na frente do
+                        sentado pra cobrir cintura. Antes usava sprite inteiro
+                        textures.desk que cobria todo o encosto da cadeira;
+                        agora só metade superior igual mesas normais (Pedro
+                        2026-06-07). */}
+                    {deskTextureSplit && (
+                      <pixiContainer
+                        x={PEDRO_DESK_POSITION.x}
+                        y={PEDRO_DESK_POSITION.y}
+                        zIndex={PEDRO_DESK_POSITION.y + 75}
+                        eventMode="static"
+                        cursor="pointer"
+                        onPointerTap={() => handleDeskTap(PEDRO_DESK_POSITION)}
+                      >
+                        <pixiSprite
+                          texture={deskTextureSplit.top}
+                          anchor={{ x: 0.5, y: 0 }}
+                          x={-25}
+                          y={-5}
+                          scale={{ x: 0.27, y: 0.21 }}
+                        />
+                      </pixiContainer>
+                    )}
                   </pixiContainer>
 
                   {/* Sombras das mesas (always-back) + teclado. Sprite da

@@ -174,6 +174,27 @@ export function usePlayerControl(): void {
     let rafId = 0;
     let lastTime = performance.now();
 
+    // Quando a aba perde foco/visibilidade, o navegador NÃO dispara keyup.
+    // Se o Pedro tava com W apertado e troca de aba, a tecla fica presa em
+    // pressedKeys → ao voltar, o personagem continua andando sozinho até
+    // ele apertar e soltar W de novo. Limpamos pressedKeys nessas
+    // transições. Também resetamos lastTime ao voltar visível pra evitar
+    // um delta enorme acumulado no primeiro tick.
+    const clearStickyState = () => {
+      pressedKeys.clear();
+      shiftHeldRef.current = false;
+      lastTime = performance.now();
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearStickyState();
+      } else {
+        lastTime = performance.now();
+      }
+    };
+    window.addEventListener("blur", clearStickyState);
+    document.addEventListener("visibilitychange", onVisibility);
+
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
@@ -384,6 +405,8 @@ export function usePlayerControl(): void {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearStickyState);
+      document.removeEventListener("visibilitychange", onVisibility);
       cancelAnimationFrame(rafId);
       pressedKeys.clear();
     };

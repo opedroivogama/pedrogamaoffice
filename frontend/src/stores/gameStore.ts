@@ -251,6 +251,11 @@ export interface GameStore {
   // control just like the boss/agents. Persists to /api/v1/preferences/
   // user_avatar_positions (debounced).
   userAvatarPositions: Map<string, Position>;
+  // True once loadUserAvatarPositions has run (with or without DB data).
+  // The sprite holds off rendering until this flips to avoid spawning at
+  // the default coords (820, 990) and visibly teleporting when the fetch
+  // arrives ~200ms later.
+  userAvatarsHydrated: boolean;
   setUserAvatarPosition: (id: string, position: Position) => void;
   loadUserAvatarPositions: () => Promise<void>;
 
@@ -367,7 +372,7 @@ export interface GameStore {
 // CONSTANTS
 // ============================================================================
 
-const BOSS_POSITION: Position = { x: 640, y: 900 }; // Desk center at y=960 (30*32)
+const BOSS_POSITION: Position = { x: 460, y: 900 }; // Desk center at y=960 (30*32). Pedro 2026-06-07: shift -180px total (640→460) pra abrir espaço pra mesa do Pedro à direita (x=820).
 const MAX_EVENT_LOG = 500;
 const DEBUG_SETTINGS_KEY = "claude-office-debug-settings";
 const WHITEBOARD_MODE_COUNT = 11; // 0-10 modes
@@ -495,15 +500,16 @@ const initialState = {
   >([
     // Claudius sentado na mesa dele por padrão (Pedro 2026-06-06). Só sai
     // quando o Pedro remove manualmente (clique no Claudius pra levantar).
-    ["boss", { x: 640, y: 900, deskTopY: 930 }],
+    ["boss", { x: 460, y: 900, deskTopY: 930 }],
   ]),
   bossWalkTarget: null as Position | null,
   userAvatarPositions: new Map<string, Position>([
     ["pedro", { x: 950, y: 870 }],
     ["estagiario", { x: 1130, y: 870 }],
     ["chrome-dummy", { x: 770, y: 870 }],
-    ["pedro-samurai", { x: 1200, y: 950 }],
+    ["pedro-samurai", { x: 820, y: 990 }],
   ]),
+  userAvatarsHydrated: false,
   userAvatarBubbles: new Map<string, string>(),
   userAvatarFacings: new Map<string, string>(),
 
@@ -929,11 +935,20 @@ export const useGameStore = create<GameStore>()(
         const res = await fetch(
           "http://localhost:8000/api/v1/preferences/user_avatar_positions",
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          set({ userAvatarsHydrated: true });
+          return;
+        }
         const data = (await res.json()) as { value: string | null };
-        if (!data.value) return;
+        if (!data.value) {
+          set({ userAvatarsHydrated: true });
+          return;
+        }
         const parsed: unknown = JSON.parse(data.value);
-        if (!parsed || typeof parsed !== "object") return;
+        if (!parsed || typeof parsed !== "object") {
+          set({ userAvatarsHydrated: true });
+          return;
+        }
         set((state) => {
           const merged = new Map(state.userAvatarPositions);
           for (const [id, raw] of Object.entries(parsed as Record<string, unknown>)) {
@@ -948,10 +963,11 @@ export const useGameStore = create<GameStore>()(
               merged.set(id, raw as Position);
             }
           }
-          return { userAvatarPositions: merged };
+          return { userAvatarPositions: merged, userAvatarsHydrated: true };
         });
       } catch (err) {
         console.warn("[gameStore] Failed to load user avatar positions:", err);
+        set({ userAvatarsHydrated: true });
       }
     },
 
