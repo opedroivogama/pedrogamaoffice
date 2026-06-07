@@ -72,45 +72,68 @@ export function useSyncSessionAgents(
       }
     }
 
+    const AWAITING_TEXT = "🔔 te esperando";
+
     for (const session of activeOthers) {
       const agentId = `${SESSION_AGENT_PREFIX}${session.id}`;
-      if (agentMachineService.hasAgent(agentId)) continue;
+      const alreadyExists = agentMachineService.hasAgent(agentId);
 
-      // Find the next free desk in 0–7.
-      let chosenIdx = -1;
-      for (const idx of SESSION_DESK_INDICES) {
-        if (!occupied.has(idx)) {
-          chosenIdx = idx;
-          break;
+      if (!alreadyExists) {
+        // Find the next free desk in 0–7.
+        let chosenIdx = -1;
+        for (const idx of SESSION_DESK_INDICES) {
+          if (!occupied.has(idx)) {
+            chosenIdx = idx;
+            break;
+          }
         }
+        if (chosenIdx === -1) {
+          // All 8 desks taken — skip this session for now. (Volume 4-8 is
+          // expected, but pathological 9+ active gets visually dropped.)
+          continue;
+        }
+        occupied.add(chosenIdx);
+
+        const chair = CHAIRS[chosenIdx];
+        if (!chair) continue;
+
+        const name =
+          session.displayName ??
+          session.projectName ??
+          session.id.slice(0, 8);
+
+        agentMachineService.spawnAgent(
+          agentId,
+          name,
+          chosenIdx + 1, // service uses 1-based desk numbers
+          { x: chair.x, y: chair.y },
+          { skipArrival: true, backendState: "working" },
+        );
+
+        // Trigger the seated crop in AgentSprite. isTyping is the visual
+        // trigger that crops to waist-up. Strict semantics are loose here —
+        // it just means "sitting at the desk doing work".
+        store.setAgentTyping(agentId, true);
       }
-      if (chosenIdx === -1) {
-        // All 8 desks taken — skip this session for now. (Volume 4-8 is
-        // expected, but pathological 9+ active gets visually dropped.)
-        continue;
+
+      // "🔔 te esperando" bubble shows on agents whose Claude is waiting
+      // for user input (notification/waiting events). Only enqueue if
+      // not already showing — avoids re-enqueueing every 5s poll tick.
+      if (session.awaitingInput) {
+        if (!store.hasBubbleText(agentId, AWAITING_TEXT)) {
+          store.enqueueBubble(
+            agentId,
+            { type: "thought", text: AWAITING_TEXT, persistent: true },
+            { immediate: true },
+          );
+        }
+      } else if (store.hasBubbleText(agentId, AWAITING_TEXT)) {
+        // Was waiting, no longer — clear the persistent bubble. Other
+        // (non-awaiting) bubbles for this agent get cleared too; that's
+        // an acceptable MVP trade-off given how rare regular bubbles are
+        // on session-agents.
+        store.clearBubbles(agentId);
       }
-      occupied.add(chosenIdx);
-
-      const chair = CHAIRS[chosenIdx];
-      if (!chair) continue;
-
-      const name =
-        session.displayName ??
-        session.projectName ??
-        session.id.slice(0, 8);
-
-      agentMachineService.spawnAgent(
-        agentId,
-        name,
-        chosenIdx + 1, // service uses 1-based desk numbers
-        { x: chair.x, y: chair.y },
-        { skipArrival: true, backendState: "working" },
-      );
-
-      // Trigger the seated crop in AgentSprite. isTyping is the visual
-      // trigger that crops to waist-up. Strict semantics are loose here —
-      // it just means "sitting at the desk doing work".
-      store.setAgentTyping(agentId, true);
     }
   }, [sessions, currentSessionId]);
 }

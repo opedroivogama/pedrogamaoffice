@@ -355,8 +355,15 @@ function AgentSpriteComponent({
     [color],
   );
 
-  // Click handler for focus popup
+  // Click handler. For session-agents (id starts with "agent_session_"),
+  // bypass the generic focus popup and switch to the underlying Claude
+  // Code session directly. For regular agents, open the focus popup.
   const handlePointerTap = useCallback(() => {
+    if (id.startsWith("agent_session_")) {
+      const sessionId = id.slice("agent_session_".length);
+      useGameStore.getState().requestSessionSwitch(sessionId);
+      return;
+    }
     if (!clickToFocusEnabled) return;
     const canvas = document.querySelector(".pixi-canvas-container canvas");
     if (!canvas) return;
@@ -375,7 +382,8 @@ function AgentSpriteComponent({
       x={position.x}
       y={position.y}
       onPointerTap={handlePointerTap}
-      interactive={clickToFocusEnabled}
+      interactive={clickToFocusEnabled || id.startsWith("agent_session_")}
+      cursor={id.startsWith("agent_session_") ? "pointer" : undefined}
     >
       {/* Drop shadow under the agent's feet (always on, behind body). */}
       <pixiGraphics draw={drawShadow} />
