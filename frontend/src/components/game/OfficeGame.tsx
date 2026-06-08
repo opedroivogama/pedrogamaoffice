@@ -1002,7 +1002,7 @@ function UserAvatarLabelsLayer(): ReactNode {
           // `size*SEATED_CROP_RATIO*(1-topPaddingRatio)` jogava badge ~33px
           // acima do crânio real.
           labelX = chair.x;
-          // Boss chair (y=900) tem drop de 10px pra alinhar com mesa maior.
+          // Boss chair (y=880) tem drop de 25px pra alinhar com mesa maior.
           const bossChairDrop = chair.y === 900 ? 25 : 0;
           labelY =
             chair.deskTopY -
@@ -1046,11 +1046,49 @@ function UserAvatarLabelsLayer(): ReactNode {
 }
 
 function PedroBubbleLayer(): ReactNode {
-  const position = useGameStore((s) => s.userAvatarPositions.get("pedro"));
-  const bubbleText = useGameStore((s) => s.userAvatarBubbles.get("pedro"));
+  // Pedro 2026-06-07: lê do "pedro-samurai" (sprite atual) em vez do
+  // "pedro" antigo. O bubbleText pode ter sido escrito em qualquer um —
+  // tenta samurai primeiro, fallback pra pedro.
+  const samuraiPos = useGameStore((s) =>
+    s.userAvatarPositions.get("pedro-samurai"),
+  );
+  const pedroPos = useGameStore((s) => s.userAvatarPositions.get("pedro"));
+  const position = samuraiPos ?? pedroPos;
+  const bubbleText = useGameStore(
+    (s) =>
+      s.userAvatarBubbles.get("pedro-samurai") ??
+      s.userAvatarBubbles.get("pedro"),
+  );
+  const chair = useGameStore(
+    (s) =>
+      s.entitySeats.get("pedro-samurai") ?? s.entitySeats.get("pedro") ?? null,
+  );
   if (!position || !bubbleText) return null;
-  // Pedro size=256 e topPaddingRatio=58/228 (vide UserAvatar do Pedro acima).
-  const yOffset = -(256 * (1 - 58 / 228) + 42);
+  // Pedro Samurai atual: size=282, topPaddingRatio=63/248. Pedro 2026-06-07:
+  // fórmula corrigida — antes usava size=256, topPad=58/228 e fórmula errada
+  // de crânio sentado (size*SEATED_CROP_RATIO*(1-topPad)), que jogava a
+  // bolha 30-50px acima do real e em pé escapava do crânio.
+  const SIZE = 282;
+  const TOP_PAD = 63 / 248;
+  if (chair) {
+    const bossChairDrop = chair.y === 900 ? 25 : 0;
+    const x = chair.x;
+    const y = chair.deskTopY - 11 + bossChairDrop;
+    // Topo crânio sentado = size * (topPad - SEATED_CROP_RATIO). Bolha 42px
+    // acima.
+    const yOffset = SIZE * (TOP_PAD - SEATED_CROP_RATIO) - 42;
+    return (
+      <pixiContainer x={x} y={y}>
+        <AgentBubble
+          content={{ type: "speech", text: bubbleText }}
+          yOffset={yOffset}
+          maxChars={300}
+        />
+      </pixiContainer>
+    );
+  }
+  // Em pé: topo crânio em -size * (1 - topPad). Bolha 42px acima.
+  const yOffset = -(SIZE * (1 - TOP_PAD) + 42);
   return (
     <pixiContainer x={position.x} y={position.y}>
       <AgentBubble

@@ -32,8 +32,10 @@ export const CHAIRS: Chair[] = [
   { x: 512, y: 592, deskTopY: 630 },
   { x: 768, y: 592, deskTopY: 630 },
   { x: 1024, y: 592, deskTopY: 630 },
-  // Boss
-  { x: 640, y: 900, deskTopY: 930 },
+  // Boss (Claudius) — shift -180px total (Pedro 2026-06-07) pra abrir espaço pra mesa do Pedro
+  { x: 460, y: 900, deskTopY: 930 },
+  // Mesa do Pedro — espelho à direita da do Claudius, 360px de distância centro-a-centro
+  { x: 820, y: 900, deskTopY: 930 },
 ];
 
 /**

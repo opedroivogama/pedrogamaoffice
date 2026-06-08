@@ -64,11 +64,17 @@ const ELEVATOR_Y = ELEVATOR_ZONE.minY; // 90
 const ELEVATOR_WIDTH = ELEVATOR_ZONE.maxX - ELEVATOR_ZONE.minX; // 112
 const ELEVATOR_HEIGHT = ELEVATOR_ZONE.maxY - ELEVATOR_ZONE.minY; // 210
 
-const BOSS_DESK_X = 640;
+const BOSS_DESK_X = 460; // Pedro 2026-06-07: shift -180 pra abrir espaço pra mesa do Pedro
 // Boss at y=900, desk drawn 20px below with 80px height → desk center at y=960
 const BOSS_DESK_Y = 960; // Grid-aligned: 30*32 = 960
 const BOSS_DESK_HALF_WIDTH = 80 + OBSTACLE_PADDING;
 const BOSS_DESK_HALF_HEIGHT = 40 + OBSTACLE_PADDING;
+
+// Pedro desk — espelho à direita do Claudius (sentável, mas só visual/decorativa)
+const PEDRO_DESK_X = 820;
+const PEDRO_DESK_Y = 960;
+const PEDRO_DESK_HALF_WIDTH = 80 + OBSTACLE_PADDING;
+const PEDRO_DESK_HALF_HEIGHT = 40 + OBSTACLE_PADDING;
 
 // Printer station (bottom left corner) - only bottom portion blocked
 const PRINTER_X = 50;
@@ -76,9 +82,9 @@ const PRINTER_Y = 993;
 const PRINTER_HALF_WIDTH = 50 + OBSTACLE_PADDING;
 const PRINTER_HALF_HEIGHT = 12;
 
-// Trash can (right of boss desk)
-const TRASH_CAN_X = 640 + 110; // Boss position.x + offset
-const TRASH_CAN_Y = 900 + 65 + 20; // Boss position.y + offset + bottom adjustment
+// Trash can (right of boss desk) — anchored a BOSS_DESK_X que agora é 580
+const TRASH_CAN_X = BOSS_DESK_X + 110;
+const TRASH_CAN_Y = 900 + 65 + 20; // Boss y + offset + bottom adjustment
 const TRASH_CAN_HALF_WIDTH = 20 + OBSTACLE_PADDING;
 const TRASH_CAN_HALF_HEIGHT = 15;
 

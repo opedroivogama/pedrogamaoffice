@@ -15,13 +15,19 @@ import { Position } from "@/types";
 // Boss desk positions (where agents stand IN FRONT of the desk)
 // Boss desk center at y:928 (grid-aligned 29*32)
 // Agents stand 60px above desk center so pathfinding can reach them
-export const BOSS_SLOT_LEFT: Position = { x: 520, y: 868 }; // Getting work (arrivals)
-export const BOSS_SLOT_RIGHT: Position = { x: 760, y: 868 }; // Receiving work (departures)
+export const BOSS_SLOT_LEFT: Position = { x: 340, y: 868 }; // Getting work (arrivals)
+export const BOSS_SLOT_RIGHT: Position = { x: 940, y: 868 }; // Receiving work (departures) — shift +180 pra ficar à direita da mesa do Pedro (x=820)
 
 // Boss center position (for rendering)
 // Desk visual: drawn 20px below boss with 80px height → desk center = boss_y + 60
 // For desk center at y=960 (grid-aligned 30*32), boss is at y=900
-export const BOSS_POSITION: Position = { x: 640, y: 900 };
+// Pedro 2026-06-07: shift -180 pra abrir espaço pra mesa do Pedro à direita.
+export const BOSS_POSITION: Position = { x: 460, y: 900 };
+
+// Mesa decorativa+sentável do Pedro — espelho à direita do Claudius
+// (360px de distância centro-a-centro). Não tem fila/queue/animação de
+// compaction associada, é só visual e sit/stand.
+export const PEDRO_DESK_POSITION: Position = { x: 820, y: 900 };
 
 // Elevator position. Descido +80px total (178 → 258). WALL_HEIGHT
 // atual=400 (parede esticou pra rodapé descer 15 junto).
@@ -132,7 +138,7 @@ export function isInElevatorZone(pos: Position): boolean {
 // Position 1+ are waiting spots in the queue line
 // A0-A2: horizontal along bottom, A3-A7: vertical going up (above printer)
 export const ARRIVAL_QUEUE_POSITIONS: Position[] = [
-  { x: 480, y: 930 }, // Position 0 (A0 - ready spot, left of boss desk)
+  { x: 300, y: 930 }, // Position 0 (A0 - ready spot, left of boss desk) — shift -180 com BOSS_POSITION
   { x: 330, y: 930 }, // Position 1 (first waiting spot)
   { x: 190, y: 930 }, // Position 2 (horizontal)
   { x: 70, y: 820 }, // Position 3 (moved up - above printer)
@@ -147,7 +153,7 @@ export const ARRIVAL_QUEUE_POSITIONS: Position[] = [
 // Position 1+ are waiting spots in the queue line
 // D0-D3: horizontal along bottom, D4-D7: vertical going up
 export const DEPARTURE_QUEUE_POSITIONS: Position[] = [
-  { x: 800, y: 930 }, // Position 0 (D0 - ready spot, right of boss desk)
+  { x: 940, y: 930 }, // Position 0 (D0 - ready spot, right of boss desk) — shift +140 pra ficar à direita da mesa do Pedro (x=820)
   { x: 950, y: 930 }, // Position 1 (first waiting spot)
   { x: 1090, y: 930 }, // Position 2 (horizontal)
   { x: 1210, y: 930 }, // Position 3 (corner)

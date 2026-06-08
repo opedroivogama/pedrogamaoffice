@@ -294,11 +294,15 @@ export default function V2TestPage(): React.ReactNode {
   const setEntitySeated = useGameStore((s) => s.setEntitySeated);
   useEffect(() => {
     if (!userAvatarsHydrated) return;
-    setUserAvatarPosition("pedro-samurai", { x: 820, y: 880 });
+    // Coords sincronizadas com CHAIRS[última] em constants/chairs.ts —
+    // antes estavam em y=880/deskTopY=910 (versão velha da boss chair).
+    // Quando chairs.ts subiu pra y=900/deskTopY=930, o spawn-on-chair
+    // ficou 20px acima, parecendo "voar atrás do encosto".
+    setUserAvatarPosition("pedro-samurai", { x: 820, y: 900 });
     setEntitySeated("pedro-samurai", {
       x: 820,
-      y: 880,
-      deskTopY: 910,
+      y: 900,
+      deskTopY: 930,
     });
   }, [userAvatarsHydrated, setUserAvatarPosition, setEntitySeated]);
 
