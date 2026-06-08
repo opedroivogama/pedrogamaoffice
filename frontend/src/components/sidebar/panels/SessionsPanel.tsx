@@ -18,7 +18,10 @@ import {
   Radio,
   RefreshCw,
   Trash2,
+  Users,
 } from "lucide-react";
+
+import { agentMachineService } from "@/machines/agentMachineService";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -282,6 +285,28 @@ export function SessionsPanel(): React.ReactNode {
     }
   }, [isRefreshing]);
 
+  // Hard resync — limpa todos os agentes de sessão do painel e refaz
+  // fetchSessions. Útil quando você fechou um terminal Claude mas o cobre
+  // ficou "fantasma" porque o backend não recebeu session_end.
+  const [isResyncing, setIsResyncing] = useState(false);
+  const handleResyncAgents = useCallback(async () => {
+    if (isResyncing) return;
+    setIsResyncing(true);
+    try {
+      // 1) Despawn de todos os agents "agent_session_*" — o useSyncSessionAgents
+      //    vai respawnar só os que o backend confirmar como ativos.
+      for (const agentId of agentMachineService.getActiveAgentIds()) {
+        if (agentId.startsWith("agent_session_")) {
+          agentMachineService.triggerDeparture(agentId);
+        }
+      }
+      // 2) Força refetch — useSessions ouve esse evento e roda fetchSessions.
+      window.dispatchEvent(new CustomEvent("sessions-refresh"));
+    } finally {
+      setIsResyncing(false);
+    }
+  }, [isResyncing]);
+
   const handleResume = useCallback(
     async (id: string) => {
       try {
@@ -423,6 +448,19 @@ export function SessionsPanel(): React.ReactNode {
             <RefreshCw
               size={11}
               className={isRefreshing ? "animate-spin" : ""}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={handleResyncAgents}
+            disabled={isResyncing}
+            className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors disabled:opacity-50 disabled:cursor-wait"
+            title="Ressincronizar agentes do painel (limpa fantasmas de terminais fechados)"
+            aria-label="Ressincronizar agentes do painel"
+          >
+            <Users
+              size={11}
+              className={isResyncing ? "animate-pulse text-jp-gold" : ""}
             />
           </button>
         </div>

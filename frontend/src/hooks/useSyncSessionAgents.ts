@@ -6,6 +6,7 @@ import { CHAIRS } from "@/constants/chairs";
 import type { Session } from "@/hooks/useSessions";
 import { agentMachineService } from "@/machines/agentMachineService";
 import { useGameStore } from "@/stores/gameStore";
+import type { Agent as BackendAgent } from "@/types";
 
 const SESSION_AGENT_PREFIX = "agent_session_";
 
@@ -14,28 +15,40 @@ const SESSION_AGENT_PREFIX = "agent_session_";
 const SESSION_DESK_INDICES = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /**
- * Spawn one AI_SILVER sprite per active session (except the one the user
- * is currently focused on, which is represented by their own avatar).
+ * Spawn one copper sprite per active session — INCLUDING a sessão focada.
  *
- * - Each session occupies the next free desk (0–7).
- * - Sprites sit (isTyping=true triggers the seated crop in AgentSprite).
- * - When a session leaves the active list, its agent is removed.
+ * Modelo de organograma (Pedro 2026-06-08): Pedro e Claudius são avatares
+ * fixos de operação do painel. Cada terminal Claude vira um cobre sentado
+ * mostrando seu estado. A sessão focada NÃO some — Claudius é quem fala
+ * com Pedro por ela ("porta-voz da sessão atual"), e o cobre dela continua
+ * sentado em silêncio mostrando o estado de execução.
  *
- * Filtering by floor (so only sessions of the current floor render) is
- * intentionally NOT done here — that's the job of the render layer in
- * OfficeGame. This hook just keeps the agent set in sync with sessions.
+ * - Cada sessão ocupa a próxima mesa livre (0–7).
+ * - Sprites sentados (isTyping=true → crop de cintura pra cima).
+ * - Quando uma sessão sai do active list, o agente é removido.
+ *
+ * `currentSessionId` é mantido na assinatura porque outros sinks ainda usam,
+ * mas aqui dentro NÃO filtra mais — todas as sessões ativas viram cobre.
  */
 export function useSyncSessionAgents(
   sessions: Session[],
-  currentSessionId: string,
+  _currentSessionId: string,
 ): void {
   useEffect(() => {
     const activeOthers = sessions.filter(
-      (s) =>
-        s.status === "active" && s.id !== currentSessionId && !s.archivedAt,
+      (s) => s.status === "active" && !s.archivedAt,
     );
     const desiredIds = new Set(
       activeOthers.map((s) => `${SESSION_AGENT_PREFIX}${s.id}`),
+    );
+    // DEBUG temporário (Pedro 2026-06-08): diagnóstico de cobres invisíveis.
+    // Remover quando o problema for confirmado.
+    // eslint-disable-next-line no-console
+    console.log(
+      "[useSyncSessionAgents] tick · sessions=%d · active=%d · desired=",
+      sessions.length,
+      activeOthers.length,
+      Array.from(desiredIds).map((id) => id.slice(-12)),
     );
 
     // Despawn session-agents whose sessions are gone.
@@ -88,8 +101,11 @@ export function useSyncSessionAgents(
           }
         }
         if (chosenIdx === -1) {
-          // All 8 desks taken — skip this session for now. (Volume 4-8 is
-          // expected, but pathological 9+ active gets visually dropped.)
+          // eslint-disable-next-line no-console
+          console.warn(
+            "[useSyncSessionAgents] sem mesa livre pra sessão",
+            session.id.slice(0, 8),
+          );
           continue;
         }
         occupied.add(chosenIdx);
@@ -101,6 +117,29 @@ export function useSyncSessionAgents(
           session.displayName ??
           session.projectName ??
           session.id.slice(0, 8);
+
+        // CRÍTICO: precisa rodar `addAgent` ANTES do `spawnAgent` do XState
+        // service. O `updateAgentPosition` que o service chama internamente é
+        // no-op se o agente não estiver no map do gameStore. Sem essa linha,
+        // o actor existe internamente mas nada renderiza no canvas.
+        const fakeAgent: BackendAgent = {
+          id: agentId,
+          name,
+          color: "#B8972A", // dourado JP — apenas fallback; sprite cobre cobre
+          number: chosenIdx,
+          state: "working",
+          desk: chosenIdx + 1,
+        };
+        store.addAgent(fakeAgent, { x: chair.x, y: chair.y });
+
+        // eslint-disable-next-line no-console
+        console.log(
+          "[useSyncSessionAgents] SPAWN cobre · sessão=%s · mesa=%d · pos=(%d,%d)",
+          session.id.slice(0, 8),
+          chosenIdx,
+          chair.x,
+          chair.y,
+        );
 
         agentMachineService.spawnAgent(
           agentId,
@@ -135,5 +174,5 @@ export function useSyncSessionAgents(
         store.clearBubbles(agentId);
       }
     }
-  }, [sessions, currentSessionId]);
+  }, [sessions]);
 }

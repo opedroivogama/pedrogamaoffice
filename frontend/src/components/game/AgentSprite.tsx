@@ -359,12 +359,12 @@ function AgentSpriteComponent({
   // bypass the generic focus popup and switch to the underlying Claude
   // Code session directly. For regular agents, open the focus popup.
   const handlePointerTap = useCallback(() => {
-    if (id.startsWith("agent_session_")) {
-      const sessionId = id.slice("agent_session_".length);
-      useGameStore.getState().requestSessionSwitch(sessionId);
-      return;
-    }
     if (!clickToFocusEnabled) return;
+    // Para os cobres (sessões Claude), abrir o popup que tem AMBOS os
+    // botões: "focar terminal nativo" e "abrir sessão no painel". Antes
+    // o click ia direto pra session switch, sem opção de focar o
+    // terminal externo — que é justamente o que o Pedro quer pra os
+    // cobres aguardando autorização (Pedro 2026-06-08).
     const canvas = document.querySelector(".pixi-canvas-container canvas");
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
