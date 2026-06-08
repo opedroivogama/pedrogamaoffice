@@ -680,10 +680,10 @@ export function SessionsPanel(): React.ReactNode {
                         }`}
                         title={
                           primary.floorPinned
-                            ? "Andar fixado manualmente — clique pra mudar"
-                            : "Mover pra outro andar"
+                            ? "Andar/pasta fixados manualmente — clique pra mudar"
+                            : "Mover pra outro andar ou pasta"
                         }
-                        aria-label={`Mover ${primary.id} pra outro andar`}
+                        aria-label={`Mover ${primary.id} pra outro andar ou pasta`}
                       >
                         <FolderInput size={12} />
                       </button>
@@ -722,34 +722,77 @@ export function SessionsPanel(): React.ReactNode {
                           Mover pra
                         </div>
                         {buildingFloors.map((f) => {
-                          const isCurrent = primary.floorId === f.id;
+                          const isCurrentFloor = primary.floorId === f.id;
                           const firstRoomId = f.rooms[0]?.id ?? null;
                           return (
-                            <button
-                              key={f.id}
-                              type="button"
-                              disabled={isCurrent}
-                              onClick={() =>
-                                void handleMoveToFloor(
-                                  primary.id,
-                                  f.id,
-                                  firstRoomId,
-                                )
-                              }
-                              className={`flex items-center gap-1.5 px-2 py-1 text-[11px] rounded text-left transition-colors ${
-                                isCurrent
-                                  ? "bg-jp-surface-2 text-jp-gold cursor-default"
-                                  : "text-jp-fg hover:bg-jp-surface-2 hover:text-jp-gold"
-                              }`}
-                            >
-                              <span>{f.icon}</span>
-                              <span className="flex-1">{f.name}</span>
-                              {isCurrent && (
-                                <span className="text-[9px] text-jp-fg-dim">
-                                  atual
+                            <div key={f.id} className="flex flex-col gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleMoveToFloor(
+                                    primary.id,
+                                    f.id,
+                                    firstRoomId,
+                                  )
+                                }
+                                className={`flex items-center gap-1.5 px-2 py-1 text-[11px] rounded text-left transition-colors ${
+                                  isCurrentFloor
+                                    ? "bg-jp-surface-2 text-jp-gold"
+                                    : "text-jp-fg hover:bg-jp-surface-2 hover:text-jp-gold"
+                                }`}
+                                title={`Mover pro andar ${f.name} (primeira pasta)`}
+                              >
+                                <span>{f.icon}</span>
+                                <span className="flex-1 font-semibold">
+                                  {f.name}
                                 </span>
+                                {isCurrentFloor && (
+                                  <span className="text-[9px] text-jp-fg-dim">
+                                    atual
+                                  </span>
+                                )}
+                              </button>
+                              {f.rooms.length > 0 && (
+                                <div className="flex flex-col gap-0.5 pl-3 border-l border-jp-divider-soft ml-2">
+                                  {f.rooms.map((r) => {
+                                    const isCurrentRoom =
+                                      isCurrentFloor && primary.roomId === r.id;
+                                    return (
+                                      <button
+                                        key={r.id}
+                                        type="button"
+                                        disabled={isCurrentRoom}
+                                        onClick={() =>
+                                          void handleMoveToFloor(
+                                            primary.id,
+                                            f.id,
+                                            r.id,
+                                          )
+                                        }
+                                        className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded text-left transition-colors ${
+                                          isCurrentRoom
+                                            ? "bg-jp-surface-2 text-jp-gold cursor-default"
+                                            : "text-jp-fg-dim hover:bg-jp-surface-2 hover:text-jp-gold"
+                                        }`}
+                                        title={r.repoName}
+                                      >
+                                        <span className="text-jp-fg-dim">
+                                          ↳
+                                        </span>
+                                        <span className="flex-1 truncate font-mono">
+                                          {r.repoName}
+                                        </span>
+                                        {isCurrentRoom && (
+                                          <span className="text-[9px] text-jp-fg-dim">
+                                            atual
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
-                            </button>
+                            </div>
                           );
                         })}
                         <div className="border-t border-jp-divider-soft my-1" />

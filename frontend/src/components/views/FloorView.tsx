@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef } from "react";
 import { useNavigationStore } from "@/stores/navigationStore";
+import type { FloorConfig } from "@/types/navigation";
 import { ALL_FLOOR_ID, LOBBY_FLOOR_ID } from "@/types/navigation";
 import { PanelDndProvider } from "@/components/sidebar/PanelDndProvider";
 import { SessionSidebar } from "@/components/layout/SessionSidebar";
@@ -69,19 +70,25 @@ export function FloorView({
     ? null
     : buildingConfig?.floors.find((f) => f.id === floorId);
 
+  // floorId is the source of truth when set (auto-mapped by event_processor or
+  // pinned manually via PATCH /sessions/{id}/floor). Fallback to repoName match
+  // only for legacy sessions without floorId.
+  const sessionMatchesFloorId = (s: Session, f: FloorConfig): boolean => {
+    if (s.floorId) return s.floorId === f.id;
+    return f.rooms.some((room) => {
+      if (!room.repoName) return false;
+      if (s.projectRoot) {
+        const basename = s.projectRoot.split("/").pop();
+        if (basename === room.repoName) return true;
+      }
+      return s.projectName === room.repoName;
+    });
+  };
+
   // Helper: check if a session belongs to any configured floor
   const sessionMatchesAnyFloor = (s: Session): boolean =>
     buildingConfig
-      ? buildingConfig.floors.some((f) =>
-          f.rooms.some((room) => {
-            if (!room.repoName) return false;
-            if (s.projectRoot) {
-              const basename = s.projectRoot.split("/").pop();
-              if (basename === room.repoName) return true;
-            }
-            return s.projectName === room.repoName;
-          }),
-        )
+      ? buildingConfig.floors.some((f) => sessionMatchesFloorId(s, f))
       : false;
 
   // Filter sessions based on whether this is the lobby, "all", or a regular floor.
@@ -94,16 +101,7 @@ export function FloorView({
           (s) => s.status === "active" && !sessionMatchesAnyFloor(s),
         )
       : floor && floor.rooms.length > 0
-        ? sessions.filter((s) =>
-            floor.rooms.some((room) => {
-              if (!room.repoName) return false;
-              if (s.projectRoot) {
-                const basename = s.projectRoot.split("/").pop();
-                if (basename === room.repoName) return true;
-              }
-              return s.projectName === room.repoName;
-            }),
-          )
+        ? sessions.filter((s) => sessionMatchesFloorId(s, floor))
         : sessions;
 
   // Sort: most recent session per project first, then remaining by recency.

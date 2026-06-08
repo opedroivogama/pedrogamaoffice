@@ -72,6 +72,10 @@ function FloorRow({
 
 /** Check if a session belongs to a specific floor's rooms. */
 function sessionMatchesFloor(session: Session, floor: FloorConfig): boolean {
+  // floorId is the source of truth when set (auto-mapped by event_processor or
+  // pinned manually via PATCH /sessions/{id}/floor). Fallback to repoName match
+  // only for legacy sessions without floorId.
+  if (session.floorId) return session.floorId === floor.id;
   return floor.rooms.some((room) => {
     if (!room.repoName) return false;
     if (session.projectRoot) {
