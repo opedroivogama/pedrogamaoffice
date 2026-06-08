@@ -29,14 +29,44 @@ class LaunchRequest(BaseModel):
     path: str = Field(..., min_length=1, max_length=4096)
 
 
-def _build_launch_command(workdir: str) -> list[str] | None:
-    """Monta o comando de abertura de terminal + ``claude -c`` pra plataforma.
-
-    Usa ``claude -c`` (continue) em vez de ``claude`` puro: se a pasta tem
-    sessão anterior, retoma; caso contrário, abre uma nova. Cobre os dois
-    casos sem precisar de toggle na UI.
+def _encode_path_for_claude_projects(workdir: str) -> str:
+    """Codifica um path absoluto pro formato que Claude Code usa em
+    ``~/.claude/projects/``. Caracteres ``:``, ``\\``, ``/`` e espaço
+    viram ``-``. Exemplos:
+        ``C:\\Users\\Pedro\\Desktop`` → ``C--Users-Pedro-Desktop``
+        ``C:\\Users\\Pedro\\Desktop\\JURIDICO PRO - SECOND BRAIN``
+            → ``C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN``
     """
-    inner = "claude -c"
+    encoded = workdir
+    for ch in (":", "\\", "/", " "):
+        encoded = encoded.replace(ch, "-")
+    return encoded
+
+
+def _has_previous_session(workdir: str) -> bool:
+    """True se a pasta tem ao menos uma sessão Claude prévia (``*.jsonl``
+    em ``~/.claude/projects/<encoded>/``). Sem isso, ``claude -c`` aborta
+    com "No conversation found to continue" em vez de abrir nova.
+    """
+    encoded = _encode_path_for_claude_projects(workdir)
+    sessions_dir = Path.home() / ".claude" / "projects" / encoded
+    if not sessions_dir.is_dir():
+        return False
+    try:
+        return any(sessions_dir.glob("*.jsonl"))
+    except OSError:
+        return False
+
+
+def _build_launch_command(workdir: str) -> list[str] | None:
+    """Monta o comando de abertura de terminal pra plataforma.
+
+    Escolhe entre ``claude -c`` (continue) e ``claude`` puro baseado na
+    existência de sessão anterior em ``~/.claude/projects/<encoded>/``.
+    Sem essa detecção, abrir Claude numa pasta nova falha com "No
+    conversation found to continue" (Pedro 2026-06-07).
+    """
+    inner = "claude -c" if _has_previous_session(workdir) else "claude"
     if sys.platform == "win32":
         shell = "pwsh" if shutil.which("pwsh") else "powershell"
         return [
@@ -76,8 +106,26 @@ async def launch_claude(body: LaunchRequest) -> dict[str, str]:
 
     # Resolve e valida — evita disparar wt.exe pra pasta que não existe
     # (o erro do wt some no DEVNULL e o usuário fica sem feedback).
+    # Path relativo é resolvido contra $HOME (não contra o CWD do backend,
+    # que mora em escritorio-online/backend/ — armadilha sutil: usuário
+    # digita "Desktop\foo" pensando em ~/Desktop/foo e o resolve() do
+    # Path concatena com backend/, virando escritorio-online/backend/Desktop/foo).
     try:
-        resolved = Path(workdir).expanduser().resolve()
+        raw = Path(workdir).expanduser()
+        if raw.is_absolute():
+            resolved = raw.resolve()
+        else:
+            home_candidate = (Path.home() / raw).resolve()
+            if home_candidate.is_dir():
+                resolved = home_candidate
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Path precisa ser absoluto. Recebido: '{workdir}'. "
+                        f"Use 'C:\\Users\\Pedro\\Desktop\\...' ou '~/Desktop/...'."
+                    ),
+                )
     except (OSError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=f"Path inválido: {exc}") from exc
 
