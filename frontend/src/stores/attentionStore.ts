@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type { EventType } from "@/types";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { playAttentionBeep } from "@/utils/sound";
 
 // ============================================================================
 // TYPES
@@ -95,6 +96,11 @@ function scoreEvent(eventType: EventType): {
   switch (eventType) {
     case "permission_request":
       return { urgency: 90, level: "critical", autoDismissMs: null };
+    case "notification":
+      // Hook NOTIFICATION do Claude Code dispara quando ele pinga o usuário
+      // esperando resposta (ex: "Claude is waiting for your input"). Mesmo
+      // peso de permission_request — sticky, bipe.
+      return { urgency: 85, level: "critical", autoDismissMs: null };
     case "error":
       return { urgency: 70, level: "high", autoDismissMs: null };
     case "stop":
@@ -151,6 +157,7 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
       task_completed: "Tarefa concluída",
       error: "Erro",
       permission_request: "Permissão necessária",
+      notification: "Aguardando resposta",
       subagent_start: "Sub-agente iniciado",
       background_task_notification: "Tarefa em background",
     };
@@ -171,6 +178,20 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
       autoDismissMs,
       dismissed: false,
     };
+
+    // Bipe sonoro pra urgência crítica (terminal pedindo resposta).
+    // Roda fora do `set` pra não bloquear a atualização do estado se a
+    // política de autoplay do browser bloquear o AudioContext.
+    if (level === "critical") {
+      const prefs = usePreferencesStore.getState();
+      if (prefs.soundOnAttention) {
+        try {
+          playAttentionBeep("alert");
+        } catch {
+          /* silencia falhas do Web Audio */
+        }
+      }
+    }
 
     set((state) => {
       const queue = [...state.toastQueue, toast];

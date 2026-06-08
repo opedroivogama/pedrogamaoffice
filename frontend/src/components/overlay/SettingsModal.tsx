@@ -114,6 +114,10 @@ export default function SettingsModal({
   const setClickToFocusEnabled = usePreferencesStore(
     (s) => s.setClickToFocusEnabled,
   );
+  const soundOnAttention = usePreferencesStore((s) => s.soundOnAttention);
+  const setSoundOnAttention = usePreferencesStore(
+    (s) => s.setSoundOnAttention,
+  );
   const setToastFilterPermission = usePreferencesStore(
     (s) => s.setToastFilterPermission,
   );
@@ -437,6 +441,25 @@ export default function SettingsModal({
                 checked={toastFilterArrival}
                 onChange={() => setToastFilterArrival(!toastFilterArrival)}
               />
+              <div className="flex items-center justify-between gap-3">
+                <SettingsToggle
+                  label="🔔 Bipe sonoro p/ atenção urgente"
+                  checked={soundOnAttention}
+                  onChange={() => setSoundOnAttention(!soundOnAttention)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void import("@/utils/sound").then((m) =>
+                      m.playAttentionBeep("alert"),
+                    );
+                  }}
+                  className="text-[10px] text-jp-fg-dim hover:text-jp-gold underline underline-offset-2 transition-colors"
+                  title="Tocar bipe pra ouvir o som"
+                >
+                  Testar
+                </button>
+              </div>
             </div>
           </div>
 

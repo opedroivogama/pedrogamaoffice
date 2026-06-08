@@ -54,6 +54,9 @@ interface PreferencesState {
   toastFilterArrival: boolean;
   toastAutoDismissLow: number;
   toastAutoDismissInfo: number;
+  /** Toca bipe quando um terminal/sessão pede atenção urgente
+   *  (permission_request, notification). Default ligado. */
+  soundOnAttention: boolean;
 
   /** Selected Claude model shown in the header badge. */
   claudeModel: ClaudeModelId;
@@ -74,6 +77,7 @@ interface PreferencesState {
   setToastFilterArrival: (enabled: boolean) => Promise<void>;
   setToastAutoDismissLow: (ms: number) => Promise<void>;
   setToastAutoDismissInfo: (ms: number) => Promise<void>;
+  setSoundOnAttention: (enabled: boolean) => Promise<void>;
 }
 
 // ============================================================================
@@ -94,6 +98,7 @@ const DEFAULT_TOAST_FILTER_TASK_COMPLETE = true;
 const DEFAULT_TOAST_FILTER_ARRIVAL = false;
 const DEFAULT_TOAST_AUTO_DISMISS_LOW = 5000;
 const DEFAULT_TOAST_AUTO_DISMISS_INFO = 3000;
+const DEFAULT_SOUND_ON_ATTENTION = true;
 const DEFAULT_CLAUDE_MODEL: ClaudeModelId = "claude-opus-4-7";
 
 // ============================================================================
@@ -141,6 +146,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   toastFilterArrival: DEFAULT_TOAST_FILTER_ARRIVAL,
   toastAutoDismissLow: DEFAULT_TOAST_AUTO_DISMISS_LOW,
   toastAutoDismissInfo: DEFAULT_TOAST_AUTO_DISMISS_INFO,
+  soundOnAttention: DEFAULT_SOUND_ON_ATTENTION,
   claudeModel: DEFAULT_CLAUDE_MODEL,
   isLoaded: false,
 
@@ -179,6 +185,10 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       toastAutoDismissInfo: prefs.toastAutoDismissInfo
         ? Number(prefs.toastAutoDismissInfo)
         : DEFAULT_TOAST_AUTO_DISMISS_INFO,
+      soundOnAttention:
+        prefs.soundOnAttention === undefined
+          ? DEFAULT_SOUND_ON_ATTENTION
+          : prefs.soundOnAttention !== "false",
       claudeModel:
         prefs.claudeModel && isClaudeModelId(prefs.claudeModel)
           ? prefs.claudeModel
@@ -278,6 +288,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     set({ toastAutoDismissInfo: ms });
     await setPreference("toastAutoDismissInfo", String(ms));
   },
+
+  setSoundOnAttention: async (enabled) => {
+    set({ soundOnAttention: enabled });
+    await setPreference("soundOnAttention", String(enabled));
+  },
 }));
 
 // ============================================================================
@@ -306,3 +321,5 @@ export const selectToastAutoDismissLow = (state: PreferencesState) =>
   state.toastAutoDismissLow;
 export const selectToastAutoDismissInfo = (state: PreferencesState) =>
   state.toastAutoDismissInfo;
+export const selectSoundOnAttention = (state: PreferencesState) =>
+  state.soundOnAttention;
