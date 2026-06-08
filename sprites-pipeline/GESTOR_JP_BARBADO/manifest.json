@@ -1,0 +1,34 @@
+{
+  "name": "GESTOR_JP_BARBADO",
+  "character_id": "23f3392c-1771-43e8-8694-3c865d44a5f4",
+  "source_character_id": "80ad319a-52d8-48ea-a1d1-7f032953bc1b",
+  "source_character_name": "GESTOR JP B1",
+  "group_id": "986186b5-2f41-4c1c-80e1-cb06ce97b8c0",
+  "edit_description": "Sem headphone, sem oculos, com barba cheia. Mantem corpo/roupa/cabelo identicos a base.",
+  "size_px": 248,
+  "rotations": 8,
+  "walks": {
+    "mode": "v3",
+    "directions": 8,
+    "frames_per_direction": 5,
+    "frame_count_param": 4,
+    "animation_ids": {
+      "south": "01a629fa-e1be-491b-8d32-ecb6a89cdb0f",
+      "east": "ed69d888-dbf0-4690-b3f1-0384f5f7698d",
+      "north": "81eb86bf-44a5-47bd-ab87-b1baac8e6ebe",
+      "west": "843b76eb-e285-42a8-9e76-1ddecc37d2d7",
+      "south-east": "b77a8d79-00b9-4f73-b340-527a5830b056",
+      "south-west": "b5c9588e-81e1-468e-a479-e68ee8b7298a",
+      "north-east": "e20aeaad-719f-4839-b043-235f70bc292e",
+      "north-west": "6801c9af-8bae-41c0-9284-64a19982df09"
+    }
+  },
+  "idle": {
+    "mode": "static",
+    "frames": 1,
+    "note": "1 frame estatico (rotation south). breathing-idle nao gerado por restricao de creditos."
+  },
+  "deploy_path": "frontend/public/sprites/characters/GESTOR_JP_BARBADO/",
+  "generated_at": "2026-06-07",
+  "generations_used": 32
+}
