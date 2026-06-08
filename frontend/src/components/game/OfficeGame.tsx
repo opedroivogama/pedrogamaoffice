@@ -124,6 +124,7 @@ import {
 import { TrashCanSprite } from "./TrashCanSprite";
 import { WallClock } from "./WallClock";
 import { MusicNotesAura } from "./MusicNotesAura";
+import { RadioVideoTV } from "./RadioVideoTV";
 import { useElevatorModalStore } from "@/stores/elevatorModalStore";
 import { useRadioModalStore } from "@/stores/radioModalStore";
 import { Whiteboard } from "./Whiteboard";
@@ -1835,7 +1836,10 @@ export function OfficeGame(): ReactNode {
           wrapperClass="w-full h-full"
           contentClass="w-full h-full"
         >
-          <div className="pixi-canvas-container w-full h-full">
+          <div
+            className="pixi-canvas-container relative"
+            style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+          >
             <Application
               key={`pixi-app-${hmrVersion}`}
               width={CANVAS_WIDTH}
@@ -2179,6 +2183,18 @@ export function OfficeGame(): ReactNode {
                       )
                       .map((agent) => {
                         const isSubagent = agent.characterType === "subagent";
+                        const isCopper = agent.id.startsWith("agent_session_");
+                        // Cobres sentados precisam ficar NA FRENTE da cadeira
+                        // (zIndex = desk.y + 90 ≈ 498 row0 / 690 row1) e ATRÁS
+                        // do tampo da mesa ocupada (zIndex = 999_000). Pedro
+                        // 2026-06-08: antes ficava com zIndex = pos.y + foot
+                        // = ~400+0, sumindo atrás da cadeira (encosto azul).
+                        const zIndexBase =
+                          agent.currentPosition.y +
+                          getCharacterFootOffsetY(agent.id);
+                        const zIndex = isCopper
+                          ? agent.currentPosition.y + 150
+                          : zIndexBase;
                         // Subagente fica prata; resto (sessões/terminais) vira cobre.
                         const heroIdle = isSubagent
                           ? aiSilverIdleTexture
@@ -2213,10 +2229,7 @@ export function OfficeGame(): ReactNode {
                         return (
                           <pixiContainer
                             key={agent.id}
-                            zIndex={
-                              agent.currentPosition.y +
-                              getCharacterFootOffsetY(agent.id)
-                            }
+                            zIndex={zIndex}
                           >
                             <AgentSprite
                               id={agent.id}
@@ -2758,6 +2771,10 @@ export function OfficeGame(): ReactNode {
                 </>
               )}
             </Application>
+            {/* TV overlay HTML: vira o quadro no modo RADIO (13) em uma
+                "tela" que mostra o vídeo do YouTube atual, mudo. Som
+                continua vindo do AmbientRadio do modal. */}
+            <RadioVideoTV />
           </div>
         </TransformComponent>
       </TransformWrapper>

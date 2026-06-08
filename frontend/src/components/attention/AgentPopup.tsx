@@ -31,6 +31,32 @@ export default function AgentPopup(): ReactNode {
     closeFocusPopup();
   }, [focusPopup, setControlledEntity, closeFocusPopup]);
 
+  // Sessão Claude — encerra via archive (preserva .jsonl no
+  // ~/.claude/projects/, mas o backend marca como archived e o painel
+  // remove o cobre da mesa).
+  const handleEndSession = useCallback(async () => {
+    if (!focusPopup) return;
+    const id = focusPopup.agentId;
+    if (!id.startsWith("agent_session_")) return;
+    const sid = id.slice("agent_session_".length);
+    if (
+      !window.confirm(
+        `Finalizar sessão "${sid.slice(0, 8)}…"? O cobre vai sair da mesa. (O histórico em ~/.claude/projects/ é preservado.)`,
+      )
+    )
+      return;
+    try {
+      await fetch(
+        `http://localhost:8000/api/v1/sessions/${sid}/archive`,
+        { method: "POST" },
+      );
+      window.dispatchEvent(new CustomEvent("sessions-refresh"));
+    } catch {
+      // Silent — botão Users do SessionsPanel é fallback.
+    }
+    closeFocusPopup();
+  }, [focusPopup, closeFocusPopup]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -39,10 +65,15 @@ export default function AgentPopup(): ReactNode {
       }
       if (e.key === "Enter") {
         e.preventDefault();
-        handleTakeControl();
+        // Cobres: Enter foca terminal. Outros: Enter assume controle.
+        if (focusPopup?.agentId.startsWith("agent_session_")) {
+          handleFocusTerminal();
+        } else {
+          handleTakeControl();
+        }
       }
     },
-    [closeFocusPopup, handleTakeControl],
+    [closeFocusPopup, focusPopup, handleFocusTerminal, handleTakeControl],
   );
 
   useEffect(() => {
@@ -55,6 +86,7 @@ export default function AgentPopup(): ReactNode {
   if (!focusPopup) return null;
 
   const isBoss = focusPopup.agentId === "boss";
+  const isCopper = focusPopup.agentId.startsWith("agent_session_");
   const agent: AgentAnimationState | null = isBoss
     ? null
     : (agents.get(focusPopup.agentId) ?? null);
@@ -129,26 +161,55 @@ export default function AgentPopup(): ReactNode {
         </div>
 
         <div className="flex flex-col gap-2">
-          <button
-            onClick={handleTakeControl}
-            className="w-full bg-jp-gold hover:bg-jp-gold-soft text-jp-surface-1 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
-          >
-            {t("attention.popup.takeControl")}
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={handleFocusTerminal}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
-            >
-              {t("attention.popup.focusTerminal")}
-            </button>
-            <button
-              onClick={closeFocusPopup}
-              className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
-            >
-              {t("attention.popup.close")}
-            </button>
-          </div>
+          {isCopper ? (
+            // Cobre = sessão Claude. Não dá pra controlar (não é um avatar
+            // do painel). Opções: focar terminal nativo OU finalizar sessão.
+            <>
+              <button
+                onClick={handleFocusTerminal}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+              >
+                {t("attention.popup.focusTerminal")}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleEndSession}
+                  className="flex-1 bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+                >
+                  Finalizar sessão
+                </button>
+                <button
+                  onClick={closeFocusPopup}
+                  className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+                >
+                  {t("attention.popup.close")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleTakeControl}
+                className="w-full bg-jp-gold hover:bg-jp-gold-soft text-jp-surface-1 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+              >
+                {t("attention.popup.takeControl")}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleFocusTerminal}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+                >
+                  {t("attention.popup.focusTerminal")}
+                </button>
+                <button
+                  onClick={closeFocusPopup}
+                  className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
+                >
+                  {t("attention.popup.close")}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

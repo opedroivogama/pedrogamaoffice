@@ -113,10 +113,14 @@ export function useSyncSessionAgents(
         const chair = CHAIRS[chosenIdx];
         if (!chair) continue;
 
-        const name =
+        const rawName =
           session.displayName ??
           session.projectName ??
           session.id.slice(0, 8);
+        // Trunca em 15 chars + "…" pra não poluir o canvas — nomes longos
+        // tipo "Add new view to display radio screen content" viravam
+        // banners enormes em cima de cada mesa (Pedro 2026-06-08).
+        const name = rawName.length > 15 ? rawName.slice(0, 15) + "…" : rawName;
 
         // CRÍTICO: precisa rodar `addAgent` ANTES do `spawnAgent` do XState
         // service. O `updateAgentPosition` que o service chama internamente é
