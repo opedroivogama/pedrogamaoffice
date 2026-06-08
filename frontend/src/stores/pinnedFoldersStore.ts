@@ -26,6 +26,7 @@ interface PinnedFoldersState {
 
   load: () => Promise<void>;
   add: (folder: Omit<PinnedFolder, "id">) => Promise<void>;
+  update: (id: string, patch: Omit<PinnedFolder, "id">) => Promise<void>;
   remove: (id: string) => Promise<void>;
   launch: (path: string) => Promise<{ ok: boolean; error?: string }>;
 }
@@ -100,6 +101,14 @@ export const usePinnedFoldersStore = create<PinnedFoldersState>()((set, get) => 
   add: async (folder) => {
     const next: PinnedFolder = { ...folder, id: genId() };
     const folders = [...get().folders, next];
+    set({ folders });
+    await persistFolders(folders);
+  },
+
+  update: async (id, patch) => {
+    const folders = get().folders.map((f) =>
+      f.id === id ? { ...f, ...patch, id } : f,
+    );
     set({ folders });
     await persistFolders(folders);
   },

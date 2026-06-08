@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  Pencil,
   Play,
   PlayCircle,
   Plus,
@@ -31,21 +32,31 @@ const EMPTY_FLOORS: never[] = [];
 const EXPAND_STORAGE_KEY = "pinnedFolders.expanded.v1";
 
 // ============================================================================
-// ADD FORM
+// FORM — adicionar / editar
 // ============================================================================
 
-function AddForm({ onClose }: { onClose: () => void }): React.ReactNode {
+function FolderForm({
+  initial,
+  onClose,
+}: {
+  initial?: PinnedFolder;
+  onClose: () => void;
+}): React.ReactNode {
   const floors = useNavigationStore(
     (s) => s.buildingConfig?.floors ?? EMPTY_FLOORS,
   );
   const add = usePinnedFoldersStore((s) => s.add);
+  const update = usePinnedFoldersStore((s) => s.update);
 
-  const [label, setLabel] = useState("");
-  const [path, setPath] = useState("");
-  const [floorId, setFloorId] = useState<string>("");
-  const [includeChildren, setIncludeChildren] = useState(false);
+  const [label, setLabel] = useState(initial?.label ?? "");
+  const [path, setPath] = useState(initial?.path ?? "");
+  const [floorId, setFloorId] = useState<string>(initial?.floorId ?? "");
+  const [includeChildren, setIncludeChildren] = useState(
+    initial?.includeChildren ?? false,
+  );
   const [saving, setSaving] = useState(false);
 
+  const isEditing = Boolean(initial);
   const canSave = label.trim().length > 0 && path.trim().length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,12 +64,17 @@ function AddForm({ onClose }: { onClose: () => void }): React.ReactNode {
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      await add({
+      const payload = {
         label: label.trim(),
         path: path.trim(),
         floorId: floorId || undefined,
         includeChildren: includeChildren || undefined,
-      });
+      };
+      if (isEditing && initial) {
+        await update(initial.id, payload);
+      } else {
+        await add(payload);
+      }
       onClose();
     } finally {
       setSaving(false);
@@ -72,7 +88,7 @@ function AddForm({ onClose }: { onClose: () => void }): React.ReactNode {
     >
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-mono text-jp-fg-dim uppercase">
-          Nova pasta
+          {isEditing ? "Editar pasta" : "Nova pasta"}
         </span>
         <button
           type="button"
@@ -131,7 +147,11 @@ function AddForm({ onClose }: { onClose: () => void }): React.ReactNode {
         disabled={!canSave || saving}
         className="text-xs bg-jp-gold text-black font-bold px-2 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition-all"
       >
-        {saving ? "Salvando..." : "Adicionar"}
+        {saving
+          ? "Salvando..."
+          : isEditing
+            ? "Salvar alterações"
+            : "Adicionar"}
       </button>
     </form>
   );
@@ -239,12 +259,14 @@ function TreeNodeView({
   toggle,
   activeSessionId,
   onSelectSession,
+  onEdit,
 }: {
   node: FolderTreeNode;
   expandedSet: Set<string>;
   toggle: (id: string) => void;
   activeSessionId: string;
   onSelectSession: (id: string) => void;
+  onEdit: (id: string) => void;
 }): React.ReactNode {
   const isExpanded = expandedSet.has(node.id);
   const launch = usePinnedFoldersStore((s) => s.launch);
@@ -271,6 +293,12 @@ function TreeNodeView({
     if (!node.pinnedFolderId) return;
     if (!window.confirm(`Remover "${node.label}" das pastas fixadas?`)) return;
     void remove(node.pinnedFolderId);
+  };
+
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!node.pinnedFolderId) return;
+    onEdit(node.pinnedFolderId);
   };
 
   return (
@@ -352,15 +380,26 @@ function TreeNodeView({
         </button>
 
         {node.pinnedFolderId && (
-          <button
-            type="button"
-            onClick={handleRemove}
-            className="p-0.5 text-jp-fg-dim hover:text-rose-400 rounded transition-colors opacity-0 group-hover:opacity-100"
-            aria-label={`Remover ${node.label}`}
-            title="Remover atalho"
-          >
-            <Trash2 size={11} />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={handleEdit}
+              className="p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+              aria-label={`Editar ${node.label}`}
+              title="Editar pasta"
+            >
+              <Pencil size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={handleRemove}
+              className="p-0.5 text-jp-fg-dim hover:text-rose-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+              aria-label={`Remover ${node.label}`}
+              title="Remover atalho"
+            >
+              <Trash2 size={11} />
+            </button>
+          </>
         )}
       </div>
 
@@ -383,6 +422,7 @@ function TreeNodeView({
               toggle={toggle}
               activeSessionId={activeSessionId}
               onSelectSession={onSelectSession}
+              onEdit={onEdit}
             />
           ))}
         </div>
@@ -453,7 +493,26 @@ export function PinnedFoldersPanel(): React.ReactNode {
   };
 
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const editingFolder =
+    editingId !== null ? folders.find((f) => f.id === editingId) : undefined;
+
+  const handleEdit = (id: string) => {
+    setAdding(false);
+    setEditingId(id);
+  };
+
+  const handleAddToggle = () => {
+    setEditingId(null);
+    setAdding((v) => !v);
+  };
+
+  const closeForm = () => {
+    setAdding(false);
+    setEditingId(null);
+  };
 
   useEffect(() => {
     if (!isLoaded) {
@@ -493,8 +552,12 @@ export function PinnedFoldersPanel(): React.ReactNode {
           </button>
           <button
             type="button"
-            onClick={() => setAdding((v) => !v)}
-            className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors"
+            onClick={handleAddToggle}
+            className={`p-1 rounded transition-colors ${
+              adding
+                ? "text-jp-gold bg-jp-surface-2"
+                : "text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2"
+            }`}
             title="Adicionar pasta"
             aria-label="Adicionar pasta"
           >
@@ -503,7 +566,10 @@ export function PinnedFoldersPanel(): React.ReactNode {
         </div>
       </div>
       <div className="overflow-y-auto flex-grow p-2">
-        {adding && <AddForm onClose={() => setAdding(false)} />}
+        {adding && <FolderForm onClose={closeForm} />}
+        {editingFolder && (
+          <FolderForm initial={editingFolder} onClose={closeForm} />
+        )}
         {!isLoaded ? (
           <div className="p-4 text-center text-jp-fg-dim text-xs italic">
             Carregando...
@@ -522,6 +588,7 @@ export function PinnedFoldersPanel(): React.ReactNode {
                 toggle={toggleExpand}
                 activeSessionId={sessionId}
                 onSelectSession={(id) => void onSessionSelect(id)}
+                onEdit={handleEdit}
               />
             ))}
           </div>
