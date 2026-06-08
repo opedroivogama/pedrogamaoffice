@@ -375,7 +375,7 @@ export interface GameStore {
 const BOSS_POSITION: Position = { x: 460, y: 900 }; // Desk center at y=960 (30*32). Pedro 2026-06-07: shift -180px total (640→460) pra abrir espaço pra mesa do Pedro à direita (x=820).
 const MAX_EVENT_LOG = 500;
 const DEBUG_SETTINGS_KEY = "claude-office-debug-settings";
-const WHITEBOARD_MODE_COUNT = 11; // 0-10 modes
+const WHITEBOARD_MODE_COUNT = 14; // 0-13 modes (mantém em sync com registry)
 
 // ============================================================================
 // USER AVATAR POSITION PERSISTENCE
@@ -615,10 +615,21 @@ export const useGameStore = create<GameStore>()(
           (id) => id !== agentId,
         );
 
+        // Limpa entitySeats também — cobres são spawnados já sentados
+        // (useSyncSessionAgents) e ficariam com entry zumbi se a sessão
+        // sumisse. Pedro 2026-06-08.
+        const newEntitySeats = state.entitySeats.has(agentId)
+          ? new Map(state.entitySeats)
+          : state.entitySeats;
+        if (newEntitySeats !== state.entitySeats) {
+          newEntitySeats.delete(agentId);
+        }
+
         return {
           agents: newAgents,
           arrivalQueue: newArrivalQueue,
           departureQueue: newDepartureQueue,
+          entitySeats: newEntitySeats,
         };
       }),
 

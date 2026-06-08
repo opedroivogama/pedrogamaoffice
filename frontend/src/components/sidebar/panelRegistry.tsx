@@ -20,7 +20,7 @@ import type { PanelId, SidebarId } from "@/stores/layoutStore";
 import { AgentStatus } from "@/components/game/AgentStatus";
 import { EventLog } from "@/components/game/EventLog";
 import { ConversationHistory } from "@/components/game/ConversationHistory";
-import { AmbientRadio } from "@/components/radio/AmbientRadio";
+import { AmbientRadioControls } from "@/components/radio/AmbientRadioControls";
 import { SessionHistoryPanel } from "@/components/layout/SessionHistoryPanel";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import { ChatPanel } from "@/components/sidebar/panels/ChatPanel";
@@ -123,7 +123,7 @@ export const PANEL_REGISTRY: Record<PanelId, PanelDefinition> = {
     title: "Rádio",
     icon: Radio,
     alwaysMounted: true,
-    render: () => <AmbientRadio />,
+    render: () => <AmbientRadioControls slotKind="sidebar" />,
   },
   history: {
     id: "history",

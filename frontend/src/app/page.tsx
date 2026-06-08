@@ -45,6 +45,7 @@ import SettingsModal from "@/components/overlay/SettingsModal";
 import CalendarModal from "@/components/overlay/CalendarModal";
 import ElevatorModal from "@/components/overlay/ElevatorModal";
 import RadioModal from "@/components/overlay/RadioModal";
+import { AmbientRadioPlayer } from "@/components/radio/AmbientRadioPlayer";
 import NotesModal from "@/components/notes/NotesModal";
 import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
@@ -463,6 +464,10 @@ export default function V2TestPage(): React.ReactNode {
       <CalendarModal />
       <ElevatorModal />
       <RadioModal />
+      {/* Player singleton do rádio — vive aqui sem renderizar UI. Cria e
+          mantém UM iframe de YouTube; move ele pra dentro do slot ativo
+          (sidebar / modal / TV do quadro) conforme registrado no radioStore. */}
+      <AmbientRadioPlayer />
 
       <Modal
         isOpen={sessionPendingDelete !== null}

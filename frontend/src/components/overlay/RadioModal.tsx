@@ -3,28 +3,30 @@
 import { type ReactNode } from "react";
 import Modal from "@/components/overlay/Modal";
 import { useRadioModalStore } from "@/stores/radioModalStore";
-import { AmbientRadio } from "@/components/radio/AmbientRadio";
+import { AmbientRadioControls } from "@/components/radio/AmbientRadioControls";
 
 /**
  * RadioModal — abre quando o usuário clica no sprite do rádio de parede.
- * Reusa o componente AmbientRadio dentro do Modal centralizado. O state do
- * playback (volume, fila, tocando/pausado) vive em `radioStore`, então o
- * controle aqui mantém sincronia com o panel da sidebar.
  *
- * Nota: o AmbientRadio cria um iframe do YouTube quando montado. Se o panel
- * lateral também estiver montado, haverá dois iframes — ambos compartilham
- * o radioStore mas tocam independentemente. Se virar problema, isolar
- * para uma instância única via portal.
+ * Renderiza o `AmbientRadioControls` (mesma UI do painel lateral). O state
+ * é compartilhado via `radioStore`, e o iframe único do
+ * `AmbientRadioPlayer` (singleton) é movido pra dentro deste slot enquanto
+ * o modal está aberto (prioridade `modal` > `sidebar`). Ao fechar, o
+ * iframe volta sozinho pro slot do sidebar.
  */
 export default function RadioModal(): ReactNode {
   const isOpen = useRadioModalStore((s) => s.isOpen);
   const close = useRadioModalStore((s) => s.close);
 
+  if (!isOpen) {
+    return <Modal isOpen={false} onClose={close} title="Rádio" size="md">
+      <div />
+    </Modal>;
+  }
+
   return (
     <Modal isOpen={isOpen} onClose={close} title="Rádio" size="md">
-      <div className="w-full">
-        <AmbientRadio />
-      </div>
+      <AmbientRadioControls slotKind="modal" />
     </Modal>
   );
 }

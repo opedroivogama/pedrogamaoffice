@@ -1801,19 +1801,28 @@ export function OfficeGame(): ReactNode {
   }, [debugMode]);
 
 
-  // Reset pan/zoom + centra a view no resize da janela. ResizeObserver foi
-  // evitado pra não disparar em micro-reflows (event log/sidebar).
-  // Pedro 2026-06-06: além do resetTransform, faz centerView no próximo
-  // frame pra recalcular bounds depois que o DOM termina o reflow.
+  // Auto-fit: escala o canvas pra preencher a área disponível do panel,
+  // mantendo aspect 5:4. Aplica no mount e no resize da janela.
+  // Pedro 2026-06-08: substitui o resetTransform anterior pra que ao
+  // maximizar a janela o canvas cresça junto, ao invés de ficar 1280×1024
+  // fixo num panel maior, deixando espaço vazio à direita.
   useEffect(() => {
-    const handleResize = () => {
-      transformRef.current?.resetTransform(0);
-      requestAnimationFrame(() => {
-        transformRef.current?.centerView(undefined, 0);
-      });
+    const fitView = () => {
+      const panel = containerRef.current;
+      const tr = transformRef.current;
+      if (!panel || !tr) return;
+      const panelW = panel.clientWidth;
+      const panelH = panel.clientHeight;
+      if (panelW <= 0 || panelH <= 0) return;
+      const fitScale = Math.min(panelW / CANVAS_WIDTH, panelH / CANVAS_HEIGHT);
+      const offsetX = (panelW - CANVAS_WIDTH * fitScale) / 2;
+      const offsetY = (panelH - CANVAS_HEIGHT * fitScale) / 2;
+      tr.setTransform(offsetX, offsetY, fitScale, 0);
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    // Espera o TransformWrapper montar.
+    requestAnimationFrame(fitView);
+    window.addEventListener("resize", fitView);
+    return () => window.removeEventListener("resize", fitView);
   }, []);
 
   return (
@@ -1821,7 +1830,11 @@ export function OfficeGame(): ReactNode {
       <TransformWrapper
         ref={transformRef}
         initialScale={1}
-        minScale={1}
+        // minScale baixo pra permitir auto-fit em viewports menores que o
+        // canvas natural (1280×1024). maxScale=3 mantém o teto pra zoom-in
+        // manual mas como o auto-fit ancora numa escala calculada, o usuário
+        // ainda pode dar wheel/pinch pra entrar mais perto.
+        minScale={0.1}
         maxScale={3}
         centerZoomedOut={true}
         centerOnInit={true}
@@ -2184,15 +2197,18 @@ export function OfficeGame(): ReactNode {
                       .map((agent) => {
                         const isSubagent = agent.characterType === "subagent";
                         const isCopper = agent.id.startsWith("agent_session_");
-                        // Cobres sentados precisam ficar NA FRENTE da cadeira
-                        // (zIndex = desk.y + 90 ≈ 498 row0 / 690 row1) e ATRÁS
-                        // do tampo da mesa ocupada (zIndex = 999_000). Pedro
-                        // 2026-06-08: antes ficava com zIndex = pos.y + foot
-                        // = ~400+0, sumindo atrás da cadeira (encosto azul).
+                        // Cobre SENTADO precisa ficar NA FRENTE da cadeira
+                        // (cadeira zIndex = desk.y + 90) e ATRÁS do tampo da
+                        // mesa ocupada (tampo zIndex = 999_000). Aplica +150
+                        // só nesse caso — cobre ANDANDO mantém Y-sort normal
+                        // pelo pé pra não enfiar a frente de outros sprites
+                        // que estão fisicamente à sua frente. Pedro 2026-06-08.
+                        const isSeatedCopper =
+                          isCopper && entitySeatsForDeskTop.has(agent.id);
                         const zIndexBase =
                           agent.currentPosition.y +
                           getCharacterFootOffsetY(agent.id);
-                        const zIndex = isCopper
+                        const zIndex = isSeatedCopper
                           ? agent.currentPosition.y + 150
                           : zIndexBase;
                         // Subagente fica prata; resto (sessões/terminais) vira cobre.
@@ -2518,6 +2534,8 @@ export function OfficeGame(): ReactNode {
                       renderBubble={false}
                       renderLabel={true}
                       isTyping={demoIsTyping}
+                      isSeated={demoIsTyping /* demo não passa pelo sit flow real,
+                                              precisa do override pra cropar */}
                     />
                   </pixiContainer>
                   )}
@@ -2771,13 +2789,16 @@ export function OfficeGame(): ReactNode {
                 </>
               )}
             </Application>
-            {/* TV overlay HTML: vira o quadro no modo RADIO (13) em uma
-                "tela" que mostra o vídeo do YouTube atual, mudo. Som
-                continua vindo do AmbientRadio do modal. */}
-            <RadioVideoTV />
           </div>
         </TransformComponent>
       </TransformWrapper>
+
+      {/* TV overlay HTML: vira o quadro no modo RADIO (13) em uma
+          "tela" que mostra o vídeo do YouTube atual, mudo. Som
+          continua vindo do AmbientRadio do modal. Renderizado FORA
+          do TransformWrapper — posiciona-se via getBoundingClientRect()
+          do canvas (position:fixed) pra evitar dupla transformação. */}
+      <RadioVideoTV />
 
       <PathErrorToast />
 
