@@ -12,9 +12,11 @@ interface SessionsPanelContextValue {
   onRenameSession: (sessionId: string, newName: string) => Promise<void>;
 }
 
-const SessionsPanelContext = createContext<SessionsPanelContextValue | null>(
-  null,
-);
+/** Contexto cru — exportado pra quem precisar do useContext direto
+ *  (com fallback null), como o QuickLinksPanel. Use o hook
+ *  `useSessionsPanelContext` quando o painel REQUER o provider. */
+export const SessionsPanelContextRaw =
+  createContext<SessionsPanelContextValue | null>(null);
 
 export function SessionsPanelProvider({
   value,
@@ -24,14 +26,14 @@ export function SessionsPanelProvider({
   children: ReactNode;
 }): React.ReactNode {
   return (
-    <SessionsPanelContext.Provider value={value}>
+    <SessionsPanelContextRaw.Provider value={value}>
       {children}
-    </SessionsPanelContext.Provider>
+    </SessionsPanelContextRaw.Provider>
   );
 }
 
 export function useSessionsPanelContext(): SessionsPanelContextValue {
-  const ctx = useContext(SessionsPanelContext);
+  const ctx = useContext(SessionsPanelContextRaw);
   if (!ctx) {
     throw new Error(
       "useSessionsPanelContext must be used inside <SessionsPanelProvider>",
