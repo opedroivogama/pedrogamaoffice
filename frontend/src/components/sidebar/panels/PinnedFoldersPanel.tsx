@@ -37,16 +37,19 @@ const EXPAND_STORAGE_KEY = "pinnedFolders.expanded.v1";
 
 function FolderForm({
   initial,
+  onSubmit,
   onClose,
 }: {
   initial?: PinnedFolder;
+  /** Callback fixo. Add ou update é decidido pelo parent — o form não
+   *  precisa saber. Evita o bug em que o React reusava o componente
+   *  entre modos e o `isEditing` interno saía dessincronizado. */
+  onSubmit: (payload: Omit<PinnedFolder, "id">) => Promise<void>;
   onClose: () => void;
 }): React.ReactNode {
   const floors = useNavigationStore(
     (s) => s.buildingConfig?.floors ?? EMPTY_FLOORS,
   );
-  const add = usePinnedFoldersStore((s) => s.add);
-  const update = usePinnedFoldersStore((s) => s.update);
 
   const [label, setLabel] = useState(initial?.label ?? "");
   const [path, setPath] = useState(initial?.path ?? "");
@@ -64,17 +67,12 @@ function FolderForm({
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      const payload = {
+      await onSubmit({
         label: label.trim(),
         path: path.trim(),
         floorId: floorId || undefined,
         includeChildren: includeChildren || undefined,
-      };
-      if (isEditing && initial) {
-        await update(initial.id, payload);
-      } else {
-        await add(payload);
-      }
+      });
       onClose();
     } finally {
       setSaving(false);
@@ -439,6 +437,8 @@ export function PinnedFoldersPanel(): React.ReactNode {
   const folders = usePinnedFoldersStore((s) => s.folders);
   const isLoaded = usePinnedFoldersStore((s) => s.isLoaded);
   const load = usePinnedFoldersStore((s) => s.load);
+  const add = usePinnedFoldersStore((s) => s.add);
+  const update = usePinnedFoldersStore((s) => s.update);
 
   // Pull sessions + selection from the shared SessionsPanel context — it
   // wraps the whole sidebar stack, so we get the same live data without
@@ -566,9 +566,19 @@ export function PinnedFoldersPanel(): React.ReactNode {
         </div>
       </div>
       <div className="overflow-y-auto flex-grow p-2">
-        {adding && <FolderForm onClose={closeForm} />}
+        {/* key distinta força o React a remontar entre "novo" e "editar
+            id=X" — sem isso ele reusava o mesmo FolderForm e o useState
+            interno mantinha o label/path da abertura anterior. */}
+        {adding && (
+          <FolderForm key="new" onSubmit={add} onClose={closeForm} />
+        )}
         {editingFolder && (
-          <FolderForm initial={editingFolder} onClose={closeForm} />
+          <FolderForm
+            key={`edit-${editingFolder.id}`}
+            initial={editingFolder}
+            onSubmit={(payload) => update(editingFolder.id, payload)}
+            onClose={closeForm}
+          />
         )}
         {!isLoaded ? (
           <div className="p-4 text-center text-jp-fg-dim text-xs italic">

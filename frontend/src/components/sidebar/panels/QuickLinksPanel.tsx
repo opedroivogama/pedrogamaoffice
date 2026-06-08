@@ -64,14 +64,16 @@ function safeHost(url: string): string {
 
 function LinkForm({
   initial,
+  onSubmit,
   onClose,
 }: {
   initial?: QuickLink;
+  /** Callback fixo. Add ou update é decidido pelo parent — evita
+   *  decisão interna baseada em isEditing/initial, que dava bug de
+   *  duplicação em alguns ciclos de reconciliação do React. */
+  onSubmit: (payload: Omit<QuickLink, "id">) => Promise<void>;
   onClose: () => void;
 }): React.ReactNode {
-  const add = useQuickLinksStore((s) => s.add);
-  const update = useQuickLinksStore((s) => s.update);
-
   const [label, setLabel] = useState(initial?.label ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
   const [emoji, setEmoji] = useState(initial?.emoji ?? "");
@@ -86,17 +88,12 @@ function LinkForm({
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      const payload = {
+      await onSubmit({
         label: label.trim(),
         url: url.trim(),
         emoji: emoji.trim() || undefined,
         color: color || undefined,
-      };
-      if (isEditing && initial) {
-        await update(initial.id, payload);
-      } else {
-        await add(payload);
-      }
+      });
       onClose();
     } finally {
       setSaving(false);
@@ -325,6 +322,8 @@ export function QuickLinksPanel(): React.ReactNode {
   const isLoaded = useQuickLinksStore((s) => s.isLoaded);
   const load = useQuickLinksStore((s) => s.load);
   const reorder = useQuickLinksStore((s) => s.reorder);
+  const add = useQuickLinksStore((s) => s.add);
+  const update = useQuickLinksStore((s) => s.update);
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -385,9 +384,16 @@ export function QuickLinksPanel(): React.ReactNode {
       </div>
 
       <div className="overflow-y-auto flex-grow p-2 flex flex-col gap-1.5">
-        {adding && <LinkForm onClose={closeForm} />}
+        {adding && (
+          <LinkForm key="new" onSubmit={add} onClose={closeForm} />
+        )}
         {editingLink && (
-          <LinkForm initial={editingLink} onClose={closeForm} />
+          <LinkForm
+            key={`edit-${editingLink.id}`}
+            initial={editingLink}
+            onSubmit={(payload) => update(editingLink.id, payload)}
+            onClose={closeForm}
+          />
         )}
 
         {!isLoaded ? (
