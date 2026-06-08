@@ -172,6 +172,27 @@ export interface DefaultCharacterTextures {
   aiSilverBackStep2: Texture | null;
   /** AI_SILVER breathing-idle south frames (4 cycled). */
   aiSilverIdleFrames: (Texture | null)[];
+  /** AI_COPPER south rotation — copper variant pra representar terminais
+   *  Claude externos. Mesmo modelo do silver, tint cobre. */
+  aiCopperIdle: Texture | null;
+  /** AI_COPPER walk-south frame 1 (left foot). */
+  aiCopperStepLeft: Texture | null;
+  /** AI_COPPER walk-south frame 4 (right foot). */
+  aiCopperStepRight: Texture | null;
+  /** AI_COPPER east-facing side idle (AgentSprite flips for west). */
+  aiCopperSideIdle: Texture | null;
+  /** AI_COPPER walk-east step 1. */
+  aiCopperSideStep1: Texture | null;
+  /** AI_COPPER walk-east step 2. */
+  aiCopperSideStep2: Texture | null;
+  /** AI_COPPER north-facing back idle. */
+  aiCopperBackIdle: Texture | null;
+  /** AI_COPPER walk-north step 1. */
+  aiCopperBackStep1: Texture | null;
+  /** AI_COPPER walk-north step 2. */
+  aiCopperBackStep2: Texture | null;
+  /** AI_COPPER breathing-idle south frames (4 cycled). */
+  aiCopperIdleFrames: (Texture | null)[];
 }
 
 export function useDefaultCharacterTexture(): DefaultCharacterTextures {
@@ -223,6 +244,16 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
     aiSilverBackStep1: null,
     aiSilverBackStep2: null,
     aiSilverIdleFrames: [],
+    aiCopperIdle: null,
+    aiCopperStepLeft: null,
+    aiCopperStepRight: null,
+    aiCopperSideIdle: null,
+    aiCopperSideStep1: null,
+    aiCopperSideStep2: null,
+    aiCopperBackIdle: null,
+    aiCopperBackStep1: null,
+    aiCopperBackStep2: null,
+    aiCopperIdleFrames: [],
   });
 
   useEffect(() => {
@@ -283,6 +314,16 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           aiSilverIdle1Base,
           aiSilverIdle2Base,
           aiSilverIdle3Base,
+          aiCopperIdleBase,
+          aiCopperStepLeftBase,
+          aiCopperStepRightBase,
+          aiCopperSideIdleBase,
+          aiCopperSideStep1Base,
+          aiCopperSideStep2Base,
+          aiCopperBackIdleBase,
+          aiCopperBackStep1Base,
+          aiCopperBackStep2Base,
+          aiCopperIdle0Base,
         ] = (await Promise.all([
           Assets.load("/sprites/characters/default.png"),
           Assets.load("/sprites/characters/default_typing.png").catch(
@@ -428,6 +469,37 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Promise.resolve(null),
           Promise.resolve(null),
           Promise.resolve(null),
+          // ── AI_COPPER (terminais Claude externos — irmão cobre do AI_SILVER) ──
+          Assets.load("/sprites/characters/AI_COPPER/rotations/south.png").catch(
+            () => null,
+          ),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/SOUTH/frame_001.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/SOUTH/frame_004.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/WEST/frame_000.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/WEST/frame_001.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/WEST/frame_004.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/NORTH/frame_000.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/NORTH/frame_001.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/walk-v3/NORTH/frame_004.png",
+          ).catch(() => null),
+          Assets.load(
+            "/sprites/characters/AI_COPPER/animations/idle/SOUTH/frame_000.png",
+          ).catch(() => null),
         ])) as [
           Texture,
           Texture | null,
@@ -472,6 +544,17 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           Texture | null,
           Texture | null,
           Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          Texture | null,
+          // +10 pro AI_COPPER (idle + 8 walk + idleFrame0)
           Texture | null,
           Texture | null,
           Texture | null,
@@ -601,6 +684,17 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
           assignNearest(aiSilverIdle2Base),
           assignNearest(aiSilverIdle3Base),
         ];
+        const aiCopperIdle = assignNearest(aiCopperIdleBase);
+        const aiCopperStepLeft = assignNearest(aiCopperStepLeftBase);
+        const aiCopperStepRight = assignNearest(aiCopperStepRightBase);
+        const aiCopperSideIdle = assignNearest(aiCopperSideIdleBase);
+        const aiCopperSideStep1 = assignNearest(aiCopperSideStep1Base);
+        const aiCopperSideStep2 = assignNearest(aiCopperSideStep2Base);
+        const aiCopperBackIdle = assignNearest(aiCopperBackIdleBase);
+        const aiCopperBackStep1 = assignNearest(aiCopperBackStep1Base);
+        const aiCopperBackStep2 = assignNearest(aiCopperBackStep2Base);
+        // Idle estático: 1 frame só (mesmo motivo do silver).
+        const aiCopperIdleFrames = [assignNearest(aiCopperIdle0Base)];
 
         if (!cancelled)
           setTextures({
@@ -651,6 +745,16 @@ export function useDefaultCharacterTexture(): DefaultCharacterTextures {
             aiSilverBackStep1,
             aiSilverBackStep2,
             aiSilverIdleFrames,
+            aiCopperIdle,
+            aiCopperStepLeft,
+            aiCopperStepRight,
+            aiCopperSideIdle,
+            aiCopperSideStep1,
+            aiCopperSideStep2,
+            aiCopperBackIdle,
+            aiCopperBackStep1,
+            aiCopperBackStep2,
+            aiCopperIdleFrames,
           });
       } catch {
         // ignore — fallback to chibi

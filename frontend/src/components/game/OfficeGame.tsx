@@ -1467,6 +1467,16 @@ export function OfficeGame(): ReactNode {
     aiSilverBackStep1: aiSilverBackStep1Texture,
     aiSilverBackStep2: aiSilverBackStep2Texture,
     aiSilverIdleFrames,
+    aiCopperIdle: aiCopperIdleTexture,
+    aiCopperStepLeft: aiCopperStepLeftTexture,
+    aiCopperStepRight: aiCopperStepRightTexture,
+    aiCopperSideIdle: aiCopperSideIdleTexture,
+    aiCopperSideStep1: aiCopperSideStep1Texture,
+    aiCopperSideStep2: aiCopperSideStep2Texture,
+    aiCopperBackIdle: aiCopperBackIdleTexture,
+    aiCopperBackStep1: aiCopperBackStep1Texture,
+    aiCopperBackStep2: aiCopperBackStep2Texture,
+    aiCopperIdleFrames,
   } = useDefaultCharacterTexture();
   const { idle: pedroIdleFrames, walk: pedroWalkFrames } =
     usePedroSprites();
@@ -2155,7 +2165,10 @@ export function OfficeGame(): ReactNode {
                         );
                       })}
 
-                    {/* Agents outside elevator - zIndex based on feet Y position */}
+                    {/* Agents outside elevator - zIndex based on feet Y position.
+                        Cobre = sessão Claude (1 por terminal externo); prata =
+                        subagente lançado via Task() dentro de uma sessão. A
+                        decisão usa `characterType` que vem do backend. */}
                     {Array.from(agents.values())
                       .filter(
                         (agent) =>
@@ -2164,44 +2177,78 @@ export function OfficeGame(): ReactNode {
                             agent.currentPosition.y,
                           ),
                       )
-                      .map((agent) => (
-                        <pixiContainer
-                          key={agent.id}
-                          zIndex={
-                            agent.currentPosition.y +
-                            getCharacterFootOffsetY(agent.id)
-                          }
-                        >
-                          <AgentSprite
-                            id={agent.id}
-                            name={agent.name}
-                            color={agent.color}
-                            number={agent.number}
-                            position={agent.currentPosition}
-                            phase={agent.phase}
-                            bubble={agent.bubble.content}
-                            headsetTexture={null}
-                            sunglassesTexture={null}
-                            characterTexture={aiSilverIdleTexture ?? chromeDummyTexture}
-                            characterTypingTexture={null}
-                            characterTypingEyeLeftTexture={null}
-                            characterStepLeftTexture={aiSilverStepLeftTexture ?? chromeDummyStepLeftTexture}
-                            characterStepRightTexture={aiSilverStepRightTexture ?? chromeDummyStepRightTexture}
-                            characterSideIdleTexture={aiSilverSideIdleTexture ?? chromeDummySideIdleTexture}
-                            characterSideStep1Texture={aiSilverSideStep1Texture ?? chromeDummySideStep1Texture}
-                            characterSideStep2Texture={aiSilverSideStep2Texture ?? chromeDummySideStep2Texture}
-                            characterBackIdleTexture={aiSilverBackIdleTexture ?? chromeDummyBackIdleTexture}
-                            characterBackStep1Texture={aiSilverBackStep1Texture ?? chromeDummyBackStep1Texture}
-                            characterBackStep2Texture={aiSilverBackStep2Texture ?? chromeDummyBackStep2Texture}
-                            characterIdleFrames={aiSilverIdleFrames}
-                            characterRenderSize={aiSilverIdleTexture ? 240 : 128}
-                            characterFeetOffsetY={aiSilverIdleTexture ? 60 : 0}
-                            renderBubble={false}
-                            renderLabel={false}
-                            isTyping={agent.isTyping}
-                          />
-                        </pixiContainer>
-                      ))}
+                      .map((agent) => {
+                        const isSubagent = agent.characterType === "subagent";
+                        // Subagente fica prata; resto (sessões/terminais) vira cobre.
+                        const heroIdle = isSubagent
+                          ? aiSilverIdleTexture
+                          : aiCopperIdleTexture;
+                        const heroStepLeft = isSubagent
+                          ? aiSilverStepLeftTexture
+                          : aiCopperStepLeftTexture;
+                        const heroStepRight = isSubagent
+                          ? aiSilverStepRightTexture
+                          : aiCopperStepRightTexture;
+                        const heroSideIdle = isSubagent
+                          ? aiSilverSideIdleTexture
+                          : aiCopperSideIdleTexture;
+                        const heroSideStep1 = isSubagent
+                          ? aiSilverSideStep1Texture
+                          : aiCopperSideStep1Texture;
+                        const heroSideStep2 = isSubagent
+                          ? aiSilverSideStep2Texture
+                          : aiCopperSideStep2Texture;
+                        const heroBackIdle = isSubagent
+                          ? aiSilverBackIdleTexture
+                          : aiCopperBackIdleTexture;
+                        const heroBackStep1 = isSubagent
+                          ? aiSilverBackStep1Texture
+                          : aiCopperBackStep1Texture;
+                        const heroBackStep2 = isSubagent
+                          ? aiSilverBackStep2Texture
+                          : aiCopperBackStep2Texture;
+                        const heroIdleFrames = isSubagent
+                          ? aiSilverIdleFrames
+                          : aiCopperIdleFrames;
+                        return (
+                          <pixiContainer
+                            key={agent.id}
+                            zIndex={
+                              agent.currentPosition.y +
+                              getCharacterFootOffsetY(agent.id)
+                            }
+                          >
+                            <AgentSprite
+                              id={agent.id}
+                              name={agent.name}
+                              color={agent.color}
+                              number={agent.number}
+                              position={agent.currentPosition}
+                              phase={agent.phase}
+                              bubble={agent.bubble.content}
+                              headsetTexture={null}
+                              sunglassesTexture={null}
+                              characterTexture={heroIdle ?? chromeDummyTexture}
+                              characterTypingTexture={null}
+                              characterTypingEyeLeftTexture={null}
+                              characterStepLeftTexture={heroStepLeft ?? chromeDummyStepLeftTexture}
+                              characterStepRightTexture={heroStepRight ?? chromeDummyStepRightTexture}
+                              characterSideIdleTexture={heroSideIdle ?? chromeDummySideIdleTexture}
+                              characterSideStep1Texture={heroSideStep1 ?? chromeDummySideStep1Texture}
+                              characterSideStep2Texture={heroSideStep2 ?? chromeDummySideStep2Texture}
+                              characterBackIdleTexture={heroBackIdle ?? chromeDummyBackIdleTexture}
+                              characterBackStep1Texture={heroBackStep1 ?? chromeDummyBackStep1Texture}
+                              characterBackStep2Texture={heroBackStep2 ?? chromeDummyBackStep2Texture}
+                              characterIdleFrames={heroIdleFrames}
+                              characterRenderSize={heroIdle ? 240 : 128}
+                              characterFeetOffsetY={heroIdle ? 60 : 0}
+                              renderBubble={false}
+                              renderLabel={false}
+                              isTyping={agent.isTyping}
+                            />
+                          </pixiContainer>
+                        );
+                      })}
 
                     {/* WanderingBoss — Claudius andando. Y-sort com mesas
                         (mesa zIndex=999999 sempre cobre). */}
