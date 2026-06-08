@@ -6,6 +6,7 @@ direto num diretório de projeto sem precisar passar pelo terminal.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -90,6 +91,70 @@ def _build_launch_command(workdir: str) -> list[str] | None:
             f"cd {workdir!r} && {inner}; exec bash",
         ]
     return None
+
+
+def _open_folder_dialog() -> str | None:
+    """Abre o diálogo nativo de pasta via tkinter num subprocess Python
+    isolado e retorna o path absoluto escolhido (ou None se cancelado).
+
+    Por que subprocess em vez de tkinter inline: tkinter mantém um
+    mainloop global por processo. Embed-lo dentro do uvicorn (mesmo em
+    asyncio.to_thread) deixa estado tk pendurado e dá conflito se o
+    diálogo for chamado mais de uma vez. Um subprocess Python descartável
+    isola completamente.
+
+    Bloqueia até o usuário escolher OK ou Cancel. Sem timeout — o front
+    mostra estado de loading e o usuário pode demorar quanto quiser
+    navegando entre pastas.
+    """
+    # Script idempotente embarcado — sem dependências externas, roda em
+    # qualquer Python com tkinter (default em Windows e Mac).
+    code = (
+        "import sys, tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "root = tk.Tk()\n"
+        "root.withdraw()\n"
+        "root.attributes('-topmost', True)\n"
+        "root.update()\n"
+        "p = filedialog.askdirectory(title='Escolher pasta', mustexist=True)\n"
+        "root.destroy()\n"
+        "sys.stdout.write(p or '')\n"
+    )
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.exception("Falha ao abrir diálogo de pasta")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao abrir diálogo: {exc}",
+        ) from exc
+
+    selected = result.stdout.strip()
+    return selected or None
+
+
+@router.post("/browse-folder")
+async def browse_folder() -> dict[str, str | None]:
+    """Abre um diálogo nativo de seleção de pasta e retorna o path.
+
+    Usado pelo botão "buscar pasta" no form do painel Pastas fixadas e
+    no form de Sessões Rápidas. Como o backend roda local na máquina do
+    usuário (Windows), abre uma janela do Explorer nativa — bem mais
+    confortável do que digitar o caminho na mão.
+
+    Retorna ``{"path": null}`` se o usuário cancelou.
+    """
+    # Sandbox no event loop principal: tkinter bloqueia, então jogamos
+    # pra um thread pool. O subprocess interno é o que de fato roda o
+    # diálogo — o thread só fica esperando o subprocess.
+    selected = await asyncio.to_thread(_open_folder_dialog)
+    return {"path": selected}
 
 
 @router.post("/launch")

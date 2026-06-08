@@ -29,6 +29,8 @@ interface PinnedFoldersState {
   update: (id: string, patch: Omit<PinnedFolder, "id">) => Promise<void>;
   remove: (id: string) => Promise<void>;
   launch: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Abre diálogo nativo do OS pra escolher pasta. Retorna path ou null. */
+  browse: () => Promise<{ ok: true; path: string | null } | { ok: false; error: string }>;
 }
 
 // ============================================================================
@@ -133,6 +135,24 @@ export const usePinnedFoldersStore = create<PinnedFoldersState>()((set, get) => 
         return { ok: false, error: body?.detail ?? res.statusText };
       }
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  },
+
+  browse: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/launcher/browse-folder`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        return { ok: false, error: body?.detail ?? res.statusText };
+      }
+      const data = (await res.json()) as { path: string | null };
+      return { ok: true, path: data.path };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }

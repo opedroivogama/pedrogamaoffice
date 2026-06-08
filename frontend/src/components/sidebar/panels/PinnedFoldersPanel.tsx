@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  FolderSearch,
   Pencil,
   Play,
   PlayCircle,
@@ -50,6 +51,7 @@ function FolderForm({
   const floors = useNavigationStore(
     (s) => s.buildingConfig?.floors ?? EMPTY_FLOORS,
   );
+  const browse = usePinnedFoldersStore((s) => s.browse);
 
   const [label, setLabel] = useState(initial?.label ?? "");
   const [path, setPath] = useState(initial?.path ?? "");
@@ -58,9 +60,33 @@ function FolderForm({
     initial?.includeChildren ?? false,
   );
   const [saving, setSaving] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
 
   const isEditing = Boolean(initial);
   const canSave = label.trim().length > 0 && path.trim().length > 0;
+
+  const handleBrowse = async () => {
+    if (browsing) return;
+    setBrowsing(true);
+    try {
+      const result = await browse();
+      if (!result.ok) {
+        window.alert(`Falha ao abrir seletor: ${result.error}`);
+        return;
+      }
+      if (result.path) {
+        setPath(result.path);
+        // Se o label tá vazio, pré-preenche com o nome da pasta escolhida
+        if (!label.trim()) {
+          const segments = result.path.split(/[\\/]/).filter(Boolean);
+          const lastSegment = segments[segments.length - 1];
+          if (lastSegment) setLabel(lastSegment);
+        }
+      }
+    } finally {
+      setBrowsing(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,14 +132,30 @@ function FolderForm({
         autoFocus
         className="text-xs bg-jp-surface-3 text-white px-2 py-1 rounded outline-none border border-jp-divider-soft focus:border-jp-gold"
       />
-      <input
-        type="text"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        placeholder="C:\Users\Pedro\Desktop\..."
-        maxLength={4096}
-        className="text-xs bg-jp-surface-3 text-white px-2 py-1 rounded outline-none border border-jp-divider-soft focus:border-jp-gold font-mono"
-      />
+      <div className="flex gap-1">
+        <input
+          type="text"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder="C:\Users\Pedro\Desktop\..."
+          maxLength={4096}
+          className="text-xs bg-jp-surface-3 text-white px-2 py-1 rounded outline-none border border-jp-divider-soft focus:border-jp-gold font-mono flex-1 min-w-0"
+        />
+        <button
+          type="button"
+          onClick={handleBrowse}
+          disabled={browsing}
+          className={`flex items-center justify-center px-2 rounded border transition-colors flex-shrink-0 ${
+            browsing
+              ? "border-jp-gold text-jp-gold animate-pulse"
+              : "border-jp-divider-soft text-jp-fg-dim hover:border-jp-gold hover:text-jp-gold hover:bg-jp-surface-3"
+          }`}
+          aria-label="Buscar pasta no computador"
+          title="Buscar pasta no computador"
+        >
+          <FolderSearch size={13} />
+        </button>
+      </div>
       {floors.length > 0 && (
         <select
           value={floorId}
