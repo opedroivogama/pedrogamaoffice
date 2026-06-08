@@ -9,6 +9,7 @@ import {
   Plus,
   Send,
   Square,
+  Terminal,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -296,6 +297,33 @@ export function ChatPanel(): React.ReactNode {
     setHasMore(false);
     lastMsgIdRef.current = null;
   }, []);
+
+  // Abre a conversa atual num terminal nativo fora do UI — útil quando o
+  // turno precisa de permissões maiores que o backend não consegue (escrita
+  // em $env, mudança de PATH, sudo, etc). Reusa o endpoint de resume das
+  // sessões pinadas — ele acha o CWD original pelo JSONL e roda
+  // `claude --resume <id>` no Windows Terminal nativo.
+  const [openingTerminal, setOpeningTerminal] = useState(false);
+  const handleOpenInTerminal = useCallback(async () => {
+    if (!thread?.id || openingTerminal) return;
+    setOpeningTerminal(true);
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/v1/sessions/${thread.id}/resume`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        setError(`Falha ao abrir terminal: ${body?.detail ?? res.statusText}`);
+      }
+    } catch (err) {
+      setError(`Falha ao abrir terminal: ${(err as Error).message}`);
+    } finally {
+      setOpeningTerminal(false);
+    }
+  }, [thread?.id, openingTerminal]);
 
   const handleDeleteThread = useCallback(async () => {
     if (!thread) return;
@@ -616,6 +644,17 @@ export function ChatPanel(): React.ReactNode {
             title="Nova conversa"
           >
             <Plus className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenInTerminal}
+            disabled={!thread || openingTerminal}
+            className={`p-0.5 rounded hover:text-jp-gold-primary disabled:opacity-30 transition-colors ${
+              openingTerminal ? "text-jp-gold-primary animate-pulse" : ""
+            }`}
+            title="Abrir essa conversa num terminal nativo (pra usar permissões maiores: sudo, $env, etc)"
+          >
+            <Terminal className="w-3 h-3" />
           </button>
           <button
             type="button"
