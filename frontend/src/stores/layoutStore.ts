@@ -10,6 +10,7 @@ export type PanelId =
   | "menu"
   | "sessions"
   | "pinned-folders"
+  | "quick-links"
   | "git-status"
   | "chat-claude"
   | "agent-status"
@@ -86,7 +87,7 @@ const CACHE_KEY = "panel_layout_cache_v1";
 
 const DEFAULT_LAYOUT: { left: SidebarLayout; right: SidebarLayout } = {
   left: {
-    order: ["menu", "sessions", "pinned-folders", "git-status"],
+    order: ["menu", "sessions", "pinned-folders", "quick-links", "git-status"],
     collapsed: {},
     heights: {},
   },
@@ -105,6 +106,7 @@ const ALL_VALID_IDS: PanelId[] = [
   "menu",
   "sessions",
   "pinned-folders",
+  "quick-links",
   "git-status",
   "chat-claude",
   "agent-status",
@@ -118,6 +120,7 @@ const LEFT_IDS: PanelId[] = [
   "menu",
   "sessions",
   "pinned-folders",
+  "quick-links",
   "git-status",
 ];
 const RIGHT_IDS: PanelId[] = [

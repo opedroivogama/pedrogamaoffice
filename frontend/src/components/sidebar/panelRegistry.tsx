@@ -7,6 +7,7 @@ import {
   Folder,
   GitBranch,
   LayoutGrid,
+  Link2,
   MessageCircle,
   MessageSquare,
   Pin,
@@ -25,6 +26,7 @@ import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import { ChatPanel } from "@/components/sidebar/panels/ChatPanel";
 import { MenuPanel } from "@/components/sidebar/panels/MenuPanel";
 import { PinnedFoldersPanel } from "@/components/sidebar/panels/PinnedFoldersPanel";
+import { QuickLinksPanel } from "@/components/sidebar/panels/QuickLinksPanel";
 import { SessionsPanel } from "@/components/sidebar/panels/SessionsPanel";
 
 // ============================================================================
@@ -70,6 +72,13 @@ export const PANEL_REGISTRY: Record<PanelId, PanelDefinition> = {
     title: "Pastas",
     icon: Pin,
     render: () => <PinnedFoldersPanel />,
+  },
+  "quick-links": {
+    id: "quick-links",
+    sidebar: "left",
+    title: "Acesso Rápido",
+    icon: Link2,
+    render: () => <QuickLinksPanel />,
   },
   "git-status": {
     id: "git-status",
