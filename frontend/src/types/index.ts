@@ -114,7 +114,8 @@ export interface WebSocketMessage {
     | "git_status"
     | "session_deleted"
     | "sessions_renamed"
-    | "boss_walk_to";
+    | "boss_walk_to"
+    | "session_transcript_message";
   session_ids?: string[];
   timestamp?: string;
   state?: import("./generated").GameState;

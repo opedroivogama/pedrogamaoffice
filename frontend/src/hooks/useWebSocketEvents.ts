@@ -479,6 +479,24 @@ export function useWebSocketEvents({
             );
             break;
 
+          case "session_transcript_message": {
+            // Mensagem nova do terminal (claude --resume) da sessão ativa.
+            const tmsg = message as { session_id?: string; role?: string; text?: string };
+            if (tmsg.session_id === currentSessionIdRef.current && tmsg.text) {
+              if (tmsg.role === "user") {
+                useGameStore.getState().setUserAvatarBubble("pedro", tmsg.text);
+              } else if (tmsg.role === "assistant") {
+                enqueueBubble("boss", { type: "speech", text: tmsg.text, persistent: false });
+              }
+              window.dispatchEvent(
+                new CustomEvent("terminal-chat-message", {
+                  detail: { role: tmsg.role, text: tmsg.text },
+                }),
+              );
+            }
+            break;
+          }
+
           case "sessions_renamed":
             // Backend escaneou JSONL e detectou title novo (ex: /rename).
             // Dispara o mesmo refetch que o botão manual usa.

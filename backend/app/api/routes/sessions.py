@@ -909,6 +909,19 @@ async def resume_session(
         raise HTTPException(status_code=500, detail="Failed to resume session") from e
 
 
+@router.post("/{session_id}/watch-transcript")
+async def watch_session_transcript(session_id: str) -> dict[str, object]:
+    """Inicia o polling do JSONL da sessão principal para emitir mensagens no WebSocket."""
+    from app.core.session_transcript_poller import (
+        get_session_transcript_poller,
+        init_session_transcript_poller,
+    )
+
+    poller = get_session_transcript_poller() or init_session_transcript_poller()
+    started = await poller.start_watching(session_id)
+    return {"status": "ok", "started": started, "session_id": session_id}
+
+
 @router.get("/{session_id}/replay")
 async def get_session_replay(
     session_id: str, db: Annotated[AsyncSession, Depends(get_db)]

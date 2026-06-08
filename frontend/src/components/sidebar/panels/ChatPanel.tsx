@@ -153,6 +153,11 @@ export function ChatPanel(): React.ReactNode {
   useEffect(() => {
     if (!thread?.id) return;
     useGameStore.getState().requestSessionSwitch(thread.id);
+    // Inicia o poller de transcript — msgs do terminal aparecem aqui via
+    // session_transcript_message no WebSocket.
+    fetch(`http://localhost:8000/api/v1/sessions/${thread.id}/watch-transcript`, {
+      method: "POST",
+    }).catch(() => {});
   }, [thread?.id]);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -207,6 +212,25 @@ export function ChatPanel(): React.ReactNode {
       cancelled = true;
     };
   }, []);
+
+  // Escuta msgs do terminal (session_transcript_message → CustomEvent).
+  useEffect(() => {
+    if (!thread?.id) return;
+    const handler = (e: Event) => {
+      const { role, text } = (e as CustomEvent<{ role: string; text: string }>).detail ?? {};
+      if (!text) return;
+      setMessages((prev) => {
+        const last = [...prev].reverse().find((m) => m.role === role);
+        if (last?.text === text) return prev;
+        return [
+          ...prev,
+          { id: newId(), role: role as "user" | "assistant", text, kind: "main" as const },
+        ];
+      });
+    };
+    window.addEventListener("terminal-chat-message", handler);
+    return () => window.removeEventListener("terminal-chat-message", handler);
+  }, [thread?.id]);
 
   const loadThread = useCallback(async (t: ThreadRecord) => {
     // Aborta stream em curso antes de trocar de contexto
