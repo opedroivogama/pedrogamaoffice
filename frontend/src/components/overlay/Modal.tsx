@@ -19,6 +19,10 @@ interface ModalProps {
   maximizable?: boolean;
   /** Start maximized when first opened. Resets to false on each open. */
   defaultMaximized?: boolean;
+  /** Quando true, mantém o modal montado no DOM mesmo com `isOpen=false`,
+   *  apenas escondendo via CSS. Use para preservar recursos pesados nos
+   *  children (ex.: iframe do YouTube no RadioModal) entre abrir/fechar. */
+  keepMounted?: boolean;
 }
 
 const SIZE_CLASS: Record<ModalSize, string> = {
@@ -39,6 +43,7 @@ export default function Modal({
   size = "sm",
   maximizable = false,
   defaultMaximized = false,
+  keepMounted = false,
 }: ModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -65,14 +70,27 @@ export default function Modal({
     return () => document.removeEventListener("keydown", handleEsc);
   }, [isOpen, onClose, dismissible]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !keepMounted) return null;
 
   const sizeClass = isMaximized ? MAXIMIZED_CLASS : SIZE_CLASS[size];
+
+  // Quando keepMounted e fechado: render permanece no DOM mas invisível e
+  // não-interativo. visibility:hidden (não display:none) preserva mídia em
+  // iframes filhos — Chrome pode suspender autoplay com display:none.
+  const hiddenStyle = !isOpen
+    ? ({
+        visibility: "hidden" as const,
+        opacity: 0,
+        pointerEvents: "none" as const,
+      })
+    : undefined;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={dismissible ? onClose : undefined}
+      style={hiddenStyle}
+      onClick={isOpen && dismissible ? onClose : undefined}
+      aria-hidden={!isOpen ? true : undefined}
     >
       <div
         role="dialog"
