@@ -122,6 +122,15 @@ export function useSyncSessionAgents(
         // banners enormes em cima de cada mesa (Pedro 2026-06-08).
         const name = rawName.length > 15 ? rawName.slice(0, 15) + "…" : rawName;
 
+        // Spawn EM PÉ atrás da mesa (Pedro 2026-06-08: "atrás da mesa e
+        // na frente da cadeira"). Posição na cadeira mesmo (chair.y) — o
+        // sprite 240px alto se estende pra CIMA do anchor, então o tronco
+        // e a cabeça aparecem acima da mesa enquanto o tampo cobre só os
+        // pés/canela. O zIndex (definido em OfficeGame) cai entre cadeira
+        // (desk.y+90) e tampo (desk.y+95) pra mesa cobrir as pernas e a
+        // cadeira ficar atrás. [[sprite_sem_perna_so_em_cadeira]]
+        const spawnY = chair.y + 30;
+
         // CRÍTICO: precisa rodar `addAgent` ANTES do `spawnAgent` do XState
         // service. O `updateAgentPosition` que o service chama internamente é
         // no-op se o agente não estiver no map do gameStore. Sem essa linha,
@@ -134,7 +143,7 @@ export function useSyncSessionAgents(
           state: "working",
           desk: chosenIdx + 1,
         };
-        store.addAgent(fakeAgent, { x: chair.x, y: chair.y });
+        store.addAgent(fakeAgent, { x: chair.x, y: spawnY });
 
         // eslint-disable-next-line no-console
         console.log(
@@ -142,26 +151,29 @@ export function useSyncSessionAgents(
           session.id.slice(0, 8),
           chosenIdx,
           chair.x,
-          chair.y,
+          spawnY,
         );
 
         agentMachineService.spawnAgent(
           agentId,
           name,
           chosenIdx + 1, // service uses 1-based desk numbers
-          { x: chair.x, y: chair.y },
+          { x: chair.x, y: spawnY },
           { skipArrival: true, backendState: "working" },
         );
 
-        // Trigger the seated crop in AgentSprite. isTyping is the visual
-        // trigger that crops to waist-up. Strict semantics are loose here —
-        // it just means "sitting at the desk doing work".
-        store.setAgentTyping(agentId, true);
+        // spawnAtDesk dentro do service chama updateAgentPosition com
+        // getDeskPosition(desk) — y≈432 pra row 0 — sobrescrevendo nosso
+        // spawnY de chair.y+80. Forçamos de volta aqui pra o cobre nascer
+        // EM PÉ na frente da mesa, não na cadeira. Pedro 2026-06-08.
+        store.updateAgentPosition(agentId, { x: chair.x, y: spawnY });
+        store.updateAgentTarget(agentId, { x: chair.x, y: spawnY });
       }
 
       // "🔔 te esperando" bubble shows on agents whose Claude is waiting
       // for user input (notification/waiting events). Only enqueue if
       // not already showing — avoids re-enqueueing every 5s poll tick.
+      // Waiting tem precedência sobre o bubble de ferramenta corrente.
       if (session.awaitingInput) {
         if (!store.hasBubbleText(agentId, AWAITING_TEXT)) {
           store.enqueueBubble(
@@ -170,12 +182,34 @@ export function useSyncSessionAgents(
             { immediate: true },
           );
         }
-      } else if (store.hasBubbleText(agentId, AWAITING_TEXT)) {
-        // Was waiting, no longer — clear the persistent bubble. Other
-        // (non-awaiting) bubbles for this agent get cleared too; that's
-        // an acceptable MVP trade-off given how rare regular bubbles are
-        // on session-agents.
+        continue;
+      }
+
+      // Limpa o "te esperando" assim que a sessão sai do waiting.
+      if (store.hasBubbleText(agentId, AWAITING_TEXT)) {
         store.clearBubbles(agentId);
+      }
+
+      // Ícone de operação em cima do cobre: o backend expõe o boss_bubble
+      // da state machine de cada sessão no campo `currentBubble`. Aqui a
+      // gente espelha esse balão no cobre correspondente — sem isso o
+      // cobre fica mudo enquanto a sessão trabalha. Pedro 2026-06-08.
+      const current = session.currentBubble;
+      if (current && current.text) {
+        if (!store.hasBubbleText(agentId, current.text)) {
+          store.enqueueBubble(
+            agentId,
+            {
+              type: current.type ?? "thought",
+              text: current.text,
+              icon: current.icon ?? undefined,
+              // Persistente porque o poll é só a cada 5s; sem isso o balão
+              // pisca e some entre ticks. Substituído na próxima mudança.
+              persistent: true,
+            },
+            { immediate: true },
+          );
+        }
       }
     }
   }, [sessions]);

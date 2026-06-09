@@ -3,12 +3,12 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, TypedDict, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.websocket import manager
@@ -68,6 +68,11 @@ class SessionSummary(TypedDict):
     archivedAt: str | None
     awaitingInput: bool
     floorPinned: bool
+    # Balão atual do "boss" daquela sessão (ferramenta em uso, etc.). O painel
+    # usa esse campo pra exibir o ícone de operação em cima do cobre — sem
+    # ele, o sprite fica mudo enquanto a sessão trabalha. Pode ser None se a
+    # sessão ainda não tem state machine em memória (ex: backend reiniciado).
+    currentBubble: dict[str, object] | None
 
 
 # Event types that mean Claude Code is waiting for the user to respond.
@@ -218,6 +223,15 @@ async def list_sessions(
                 )
                 archived_at_str = archived_utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
+            # Balão atual do "boss" daquela sessão, lido da state machine em
+            # memória. Sessões que ainda não tiveram nenhum evento processado
+            # após o boot do backend ficam sem state machine — currentBubble
+            # vira None e o cobre fica sem ícone até o próximo tool use.
+            current_bubble: dict[str, object] | None = None
+            sm = event_processor.sessions.get(rec.id)
+            if sm is not None and sm.boss_bubble is not None:
+                current_bubble = sm.boss_bubble.model_dump(mode="json")
+
             sessions.append(
                 {
                     "id": rec.id,
@@ -235,6 +249,7 @@ async def list_sessions(
                     "archivedAt": archived_at_str,
                     "awaitingInput": last_event_type in _AWAITING_EVENT_TYPES,
                     "floorPinned": rec.floor_pinned,
+                    "currentBubble": current_bubble,
                 }
             )
         return sessions
@@ -564,6 +579,60 @@ async def refresh_session_names(
     """
     scanned, updated, _ = await refresh_display_names_from_transcripts(db)
     return {"status": "success", "updated": updated, "scanned": scanned}
+
+
+class ClearGhostsResult(TypedDict):
+    """Result payload for clear-ghosts endpoint."""
+
+    status: str
+    cleared: int
+    threshold_minutes: int
+
+
+@router.post("/clear-ghosts")
+async def clear_ghost_sessions(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    threshold_minutes: int = 5,
+) -> ClearGhostsResult:
+    """Mark stale active sessions as completed.
+
+    Sessions normally transition to ``completed`` via the ``session_end`` hook,
+    but terminals closed abruptly (X on the window, hard crash) never fire it,
+    so the row stays ``active`` until the 48h reaper. This endpoint is the
+    manual escape hatch: marks every ``active`` session whose ``updated_at``
+    is older than ``threshold_minutes`` as ``completed`` right now.
+
+    Sessões genuinamente ativas batem update no DB toda hora (cada evento Claude
+    Code → update_at refresca), então 5 min default é seguro.
+    """
+    cutoff = datetime.now(UTC) - timedelta(minutes=threshold_minutes)
+    result = await db.execute(
+        update(SessionRecord)
+        .where(
+            SessionRecord.status == "active",
+            SessionRecord.updated_at < cutoff,
+        )
+        .values(status="completed")
+        .execution_options(synchronize_session="fetch")
+    )
+    await db.commit()
+    cleared = int(str(getattr(result, "rowcount", 0)))
+    if cleared > 0:
+        logger.info(
+            "Cleared %d ghost sessions (inactive >%dm)", cleared, threshold_minutes
+        )
+        await manager.broadcast_all(
+            {
+                "type": "sessions_ghosts_cleared",
+                "cleared": cleared,
+                "timestamp": "",
+            }
+        )
+    return {
+        "status": "success",
+        "cleared": cleared,
+        "threshold_minutes": threshold_minutes,
+    }
 
 
 class FocusRequest(BaseModel):

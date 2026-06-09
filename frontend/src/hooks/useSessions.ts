@@ -9,6 +9,7 @@ import {
   usePreferencesStore,
   selectAutoFollowNewSessions,
 } from "@/stores/preferencesStore";
+import type { BubbleContent } from "@/types";
 
 // ============================================================================
 // TYPES
@@ -30,6 +31,11 @@ export interface Session {
   archivedAt: string | null;
   awaitingInput: boolean;
   floorPinned: boolean;
+  /** Balão atual do "boss" da sessão (texto + ícone da ferramenta em uso).
+   *  Usado pelo painel pra mostrar o ícone de operação em cima do cobre
+   *  enquanto a sessão trabalha. Null quando a sessão não tem state machine
+   *  carregada em memória ou está ociosa. */
+  currentBubble: BubbleContent | null;
 }
 
 // ============================================================================

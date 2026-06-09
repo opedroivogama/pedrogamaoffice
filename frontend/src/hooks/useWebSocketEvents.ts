@@ -207,6 +207,14 @@ export function useWebSocketEvents({
 
       // Detect removed agents (departures)
       for (const agentId of currentAgentIds) {
+        // Cobres (agent_session_*) são gerenciados 100% pelo useSyncSessionAgents
+        // — eles existem só no frontend e o backend nunca os reporta no
+        // state.agents. Sem este skip, todo state_update do /ws/all dispara
+        // triggerDeparture neles, mandando-os pro elevador → useSyncSessionAgents
+        // re-spawna no próximo tick → loop visível de cobres entrando/saindo
+        // aleatoriamente. Pedro 2026-06-08.
+        if (agentId.startsWith("agent_session_")) continue;
+
         if (!backendAgentIds.has(agentId)) {
           const agent = store.agents.get(agentId);
           if (!agent) continue;

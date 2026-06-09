@@ -2197,20 +2197,22 @@ export function OfficeGame(): ReactNode {
                       .map((agent) => {
                         const isSubagent = agent.characterType === "subagent";
                         const isCopper = agent.id.startsWith("agent_session_");
-                        // Cobre SENTADO precisa ficar NA FRENTE da cadeira
-                        // (cadeira zIndex = desk.y + 90) e ATRÁS do tampo da
-                        // mesa ocupada (tampo zIndex = 999_000). Aplica +150
-                        // só nesse caso — cobre ANDANDO mantém Y-sort normal
-                        // pelo pé pra não enfiar a frente de outros sprites
-                        // que estão fisicamente à sua frente. Pedro 2026-06-08.
-                        const isSeatedCopper =
-                          isCopper && entitySeatsForDeskTop.has(agent.id);
+                        // Cobre/prata em pé "atrás da mesa, na frente da
+                        // cadeira" (Pedro 2026-06-08). Sprite 240px estende
+                        // pra cima → tronco/cabeça aparecem acima da mesa.
+                        // zIndex cai entre cadeira (desk.y+90 ≈ 478 pra row 0)
+                        // e tampo (desk.y+95 ≈ 483), usando position.y + 50
+                        // pra cair no meio. Só aplica quando o agente está
+                        // PARADO na mesa (phase idle) — andando ele mantém
+                        // Y-sort normal pra não furar outros sprites.
+                        const isAtDesk = agent.phase === "idle";
                         const zIndexBase =
                           agent.currentPosition.y +
                           getCharacterFootOffsetY(agent.id);
-                        const zIndex = isSeatedCopper
-                          ? agent.currentPosition.y + 150
-                          : zIndexBase;
+                        const zIndex =
+                          (isCopper || isSubagent) && isAtDesk
+                            ? agent.currentPosition.y + 50
+                            : zIndexBase;
                         // Subagente fica prata; resto (sessões/terminais) vira cobre.
                         const heroIdle = isSubagent
                           ? aiSilverIdleTexture
