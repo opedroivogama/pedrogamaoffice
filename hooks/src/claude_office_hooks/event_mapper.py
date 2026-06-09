@@ -90,6 +90,55 @@ def _build_agent_transcript_path(main_transcript: str | None, native_agent_id: s
     return f"{session_dir}/subagents/agent-{native_agent_id}.jsonl"
 
 
+_CLAUDE_PROC_NAMES = frozenset({"claude.exe", "claude", "node.exe", "node"})
+
+
+def _resolve_claude_pid() -> int | None:
+    """Walk up from the hook process until we hit the Claude Code binary.
+
+    O hook é spawnado como filho de um shell efêmero (bash.exe/cmd.exe que o
+    Claude criou só pra rodar este comando) — então ``os.getppid()`` retorna
+    o PID do shell, que morre milissegundos depois de o hook terminar. Quando
+    o backend tenta verificar mais tarde se o terminal ainda existe, o PID já
+    sumiu e a sessão é marcada como completed mesmo com o Claude vivo.
+
+    Estratégia: enquanto o pai ainda está vivo (durante a execução do hook),
+    sobe pela árvore de processos até achar um ancestor cujo nome bate com
+    ``claude.exe``/``node.exe`` — esse é o processo de longa duração que
+    sobrevive até o terminal fechar. Fallback: ``os.getppid()`` se o walking
+    falhar.
+    """
+    try:
+        import psutil  # local import keeps the hook lightweight on cold path.
+    except ImportError:
+        try:
+            return os.getppid()
+        except Exception:
+            return None
+
+    try:
+        proc = psutil.Process(os.getppid())
+    except psutil.Error:
+        return None
+
+    for _ in range(8):
+        try:
+            name = (proc.name() or "").lower()
+            if name in _CLAUDE_PROC_NAMES:
+                return proc.pid
+            parent = proc.parent()
+            if parent is None:
+                break
+            proc = parent
+        except psutil.Error:
+            break
+    # No claude ancestor found — return original getppid as best-effort.
+    try:
+        return os.getppid()
+    except Exception:
+        return None
+
+
 def _handle_session_start(raw_data: dict[str, Any], data: dict[str, Any]) -> None:
     """Populate *data* for a session_start event."""
     source = raw_data.get("source", "unknown")
@@ -97,10 +146,9 @@ def _handle_session_start(raw_data: dict[str, Any], data: dict[str, Any]) -> Non
     # PID of the Claude Code (node) process. Backend walks up live at focus
     # time to find the first ancestor that actually owns a visible window
     # (cmd/powershell consoles don't — wt.exe / conhost.exe / VSCode do).
-    try:
-        data["terminal_pid"] = os.getppid()
-    except Exception:
-        pass
+    pid = _resolve_claude_pid()
+    if pid is not None:
+        data["terminal_pid"] = pid
 
 
 def _handle_pre_compact(payload: dict[str, Any], data: dict[str, Any]) -> None:
