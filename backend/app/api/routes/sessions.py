@@ -715,7 +715,16 @@ async def focus_session(
             # session_start hits), seed it from the persisted column.
             if get_terminal_pid(session_id) is None and session.terminal_pid:
                 register_terminal_pid(session_id, session.terminal_pid)
-            focus_session_window(session_id)
+            # display_name é o "nome do cobre" que o usuário vê no painel —
+            # tipicamente bate com o título da janela do terminal (cada
+            # `wt -w new` carrega o display_name no título). focus_session
+            # busca por título primeiro; se não achar, cai no walk-up do PID.
+            # Pedro 2026-06-08: cada cobre tem que focar o terminal CORRESPONDENTE,
+            # não o último wt.exe ativo.
+            focus_session_window(
+                session_id,
+                window_title_hint=session.display_name or session.label,
+            )
         elif sys.platform == "darwin":
             await asyncio.create_subprocess_exec(
                 "osascript",

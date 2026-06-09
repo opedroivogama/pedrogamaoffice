@@ -21,8 +21,19 @@ export default function AgentPopup(): ReactNode {
   const { t } = useTranslation();
 
   const handleFocusTerminal = useCallback(() => {
-    if (!sessionId) return;
-    focusAgentTerminal(sessionId, focusPopup?.agentId ?? null);
+    if (!focusPopup) return;
+    // Cobres (agent_session_<sid>) precisam focar o TERMINAL DA SUA PRÓPRIA
+    // sessão, não da sessão atualmente selecionada no painel. Sem isso o
+    // botão tentava POST /sessions/{currentSessionId}/focus que pode ser
+    // sim_session_123 ou outra sessão inexistente no DB → 404. Pedro
+    // 2026-06-08.
+    const isCopperAgent =
+      focusPopup.agentId.startsWith("agent_session_");
+    const targetSessionId = isCopperAgent
+      ? focusPopup.agentId.slice("agent_session_".length)
+      : sessionId;
+    if (!targetSessionId) return;
+    focusAgentTerminal(targetSessionId, focusPopup.agentId);
   }, [sessionId, focusAgentTerminal, focusPopup]);
 
   const handleTakeControl = useCallback(() => {

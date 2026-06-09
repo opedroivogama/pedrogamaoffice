@@ -67,21 +67,35 @@ def get_terminal_pid(session_id: str) -> int | None:
     return _session_claude_pid.get(session_id)
 
 
-def focus_session(session_id: str) -> bool:
+def focus_session(session_id: str, *, window_title_hint: str | None = None) -> bool:
     """Bring this session's terminal window to the foreground.
 
-    Walks up the process tree from the registered Claude Code PID, picking
-    the first ancestor that has a visible window.
+    Estratégia em 2 etapas (Pedro 2026-06-08):
+
+    1. **Busca por título** — se ``window_title_hint`` for fornecido
+       (tipicamente o ``display_name`` da sessão), procura uma janela
+       visível cujo título CONTENHA esse texto. Isso resolve o caso em que
+       o usuário abre cada Claude em janela WT separada (``wt -w new``),
+       cada uma com seu próprio hwnd e título refletindo a sessão. Antes
+       o walk-up via PID encontrava o mesmo wt.exe pai compartilhado por
+       todas as abas → todos os cobres focavam o mesmo terminal.
+
+    2. **Walk-up por PID** (fallback) — se não achar por título, volta pro
+       método antigo: sobe a árvore de processos a partir do Claude Code
+       PID registrado, focando o primeiro ancestor com janela visível.
 
     Returns:
-        True on success. False if not registered, not Windows, the chain
-        died, or no ancestor owns a window we can focus.
+        True on success.
     """
+    if sys.platform != "win32":
+        return False
+    if window_title_hint:
+        title_match = _focus_window_by_title(window_title_hint)
+        if title_match:
+            return True
     pid = _session_claude_pid.get(session_id)
     if pid is None:
-        logger.debug("focus_session: no PID for %s", session_id)
-        return False
-    if sys.platform != "win32":
+        logger.debug("focus_session: no PID for %s and no title match", session_id)
         return False
     return _focus_ancestor_with_window(pid)
 
@@ -150,6 +164,8 @@ if sys.platform == "win32":
     _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
     _user32.GetForegroundWindow.restype = wintypes.HWND
     _user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    _user32.GetWindowTextW.restype = ctypes.c_int
     _user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
     _user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
     _user32.BringWindowToTop.argtypes = [wintypes.HWND]
@@ -282,6 +298,71 @@ if sys.platform == "win32":
 
         return ok
 
+    def _get_window_title(hwnd: int) -> str:
+        """Return the title of *hwnd* (empty string on failure)."""
+        length = _user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return ""
+        buf = ctypes.create_unicode_buffer(length + 1)
+        _user32.GetWindowTextW(hwnd, buf, length + 1)
+        return buf.value or ""
+
+    def _focus_window_by_title(needle: str) -> bool:
+        """Find a visible top-level window whose title contains *needle*
+        (case-insensitive) and bring it to the foreground.
+
+        Útil pra terminais abertos em janelas separadas (ex: ``wt -w new``
+        cria uma janela WT por sessão, cada uma com hwnd próprio). Quando o
+        usuário abre tudo em ABAS da mesma janela WT, todas compartilham o
+        mesmo hwnd e essa busca não distingue — nesse caso o fallback do
+        walk-up por PID é igualmente ineficaz; precisaria de wt CLI.
+        """
+        if not needle:
+            return False
+        needle_lower = needle.lower()
+        matches: list[tuple[int, int, str]] = []  # (hwnd, pid, title)
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _enum(hwnd: int, _lparam: int) -> bool:
+            if not _user32.IsWindowVisible(hwnd):
+                return True
+            title = _get_window_title(hwnd)
+            if not title:
+                return True
+            if needle_lower not in title.lower():
+                return True
+            win_pid = wintypes.DWORD()
+            _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(win_pid))
+            matches.append((int(hwnd), int(win_pid.value), title))
+            return True
+
+        try:
+            _user32.EnumWindows(_enum, 0)
+        except Exception:
+            logger.exception("EnumWindows by-title failed")
+            return False
+
+        if not matches:
+            logger.info("focus by-title: no visible window matches %r", needle)
+            return False
+
+        matches.sort(key=lambda m: 0 if m[2].lower().startswith(needle_lower) else 1)
+        hwnd, pid, title = matches[0]
+        try:
+            ok = _force_foreground(hwnd, pid)
+            logger.info(
+                "focus by-title: needle=%r hwnd=%s pid=%s title=%r ok=%s",
+                needle,
+                hwnd,
+                pid,
+                title,
+                ok,
+            )
+            return ok
+        except Exception:
+            logger.exception("force_foreground failed for hwnd=%s", hwnd)
+            return False
+
     def _focus_ancestor_with_window(start_pid: int, max_depth: int = 12) -> bool:
         """Walk up from start_pid; focus the first ancestor's window."""
         proc_table = _snapshot_processes()
@@ -321,4 +402,7 @@ if sys.platform == "win32":
 else:
 
     def _focus_ancestor_with_window(start_pid: int, max_depth: int = 12) -> bool:  # noqa: ARG001
+        return False
+
+    def _focus_window_by_title(needle: str) -> bool:  # noqa: ARG001
         return False
