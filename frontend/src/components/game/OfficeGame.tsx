@@ -2688,24 +2688,10 @@ export function OfficeGame(): ReactNode {
                           </>
                         )}
 
-                        {/* Subagent shoulder dot */}
-                        {agent.characterType === "subagent" &&
-                          (() => {
-                            const parentAgent = agent.parentId
-                              ? Array.from(agents.values()).find(
-                                  (a) => a.id === agent.parentId,
-                                )
-                              : null;
-                            const dotColor = parentAgent?.color ?? "#f59e0b";
-                            return (
-                              <SubagentDot
-                                key={`dot-${agent.id}`}
-                                x={agent.currentPosition.x + 10}
-                                y={agent.currentPosition.y - 28}
-                                color={dotColor}
-                              />
-                            );
-                          })()}
+                        {/* SubagentDot (shoulder dot laranja com cor do pai)
+                            removido a pedido do Pedro 2026-06-08 — poluía o
+                            peito do prata. SubagentDot import mantido caso
+                            queiramos reativar com outro estilo depois. */}
                       </pixiContainer>
                     ))}
 
