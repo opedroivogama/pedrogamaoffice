@@ -61,6 +61,11 @@ export interface AgentSpriteProps {
   renderBubble?: boolean; // Whether to render bubble (default true)
   renderLabel?: boolean; // Whether to render name label (default true)
   isTyping?: boolean; // Whether agent is typing (animates arms)
+  /** Override do gate "sentado em cadeira" (esconde pernas via crop waist-up).
+   *  Se omitido, o componente lê `entitySeats.has(id)` do gameStore — que é
+   *  a fonte da verdade do sit flow ([[sit_flow_painel]]). Pedro 2026-06-08:
+   *  cooper agente só pode ficar sem perna quando estiver de fato sentado. */
+  isSeated?: boolean;
 }
 
 // ============================================================================
@@ -221,10 +226,17 @@ function AgentSpriteComponent({
   renderBubble = true,
   renderLabel = true,
   isTyping = false,
+  isSeated,
 }: AgentSpriteProps): ReactNode {
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
   const isControlled = useGameStore((s) => s.controlledEntityId === id);
+  // Fonte da verdade do "sentado em cadeira": entitySeats (sit flow click +
+  // confirm). Override por prop só pra casos sintéticos (demo walker) que
+  // não passam pelo sit flow real. Pedro 2026-06-08: cooper agente só pode
+  // ficar sem perna quando está numa cadeira — isTyping não é critério.
+  const seatedFromStore = useGameStore((s) => s.entitySeats.has(id));
+  const seated = isSeated ?? seatedFromStore;
 
   const typingYOffset = isTyping ? 14 : 0;
 
@@ -249,7 +261,11 @@ function AgentSpriteComponent({
     const dx = position.x - prev.x;
     const dy = position.y - prev.y;
     const speed = Math.sqrt(dx * dx + dy * dy);
-    if (speed > 0.1 && !isTyping) {
+    // isTyping não bloqueia a detecção de movimento — cobres nascem com
+    // isTyping=true e a flag não é resetada ao se moverem (departure/re-seat).
+    // O crop "sentado" agora depende de entitySeats, não de isTyping, mas
+    // mantemos a detecção de movimento aqui pra animar passos normalmente.
+    if (speed > 0.1) {
       stillTicksRef.current = 0;
       if (!isMoving) setIsMoving(true);
       setWalkPhase((p) => p + ticker.deltaTime * 0.3);
@@ -296,13 +312,13 @@ function AgentSpriteComponent({
       ? Math.floor(idlePhase * 1.5) % validIdleFrames.length
       : 0;
   const baseIdleTexture =
-    isTyping && characterTypingTexture
+    isTyping && !isMoving && characterTypingTexture
       ? characterTypingTexture
       : !isMoving && validIdleFrames && validIdleFrames.length > 0
         ? validIdleFrames[idleFrameIndex]
         : characterTexture;
   let activeTexture: Texture | null | undefined = baseIdleTexture;
-  if (isMoving && !isTyping) {
+  if (isMoving) {
     if (moveDir === "horizontal" && characterSideIdleTexture) {
       // Side-view walk cycle
       if (walkFrameIndex === 1 && characterSideStep1Texture)
@@ -327,10 +343,13 @@ function AgentSpriteComponent({
     }
   }
 
-  // Seated crop: when typing at desk, render only the top portion (head +
-  // chest + waist) so the legs/feet don't peek below the desk. Proportional to
-  // source dimensions so it works for both 128px chrome dummies and 240px
-  // PixelLab sprites (~66% of height keeps head+chest+waist).
+  // Seated crop: when the entity is seated in a chair (entitySeats / isSeated
+  // override), render only the top portion (head + chest + waist) so the
+  // legs/feet don't peek below the desk. Proportional to source dimensions so
+  // it works for both 128px chrome dummies and 240px PixelLab sprites (~66%
+  // of height keeps head+chest+waist). isTyping NÃO é critério aqui — o
+  // cobre nasce com isTyping=true mas só pode ficar sem perna quando está
+  // efetivamente sentado. Pedro 2026-06-08.
   const SEATED_CROP_RATIO = 85 / 128;
   const seatedTexture = useMemo(() => {
     const src = characterTypingTexture ?? characterTexture;
@@ -390,10 +409,12 @@ function AgentSpriteComponent({
 
       {/* Agent body — static when idle/typing, hop-bobs when walking.
           Wrapped in a flip container so the sprite faces direction of travel.
-          When isTyping, use the cropped texture (waist up only) so legs are
-          hidden behind the desk → looks "seated". */}
+          When seated in a chair, use the cropped texture (waist up only) so
+          legs are hidden behind the desk → looks "seated". O !isMoving é
+          salvaguarda contra glitch de re-seat (se o personagem ainda está
+          fisicamente em movimento, mostra corpo inteiro até parar). */}
       <pixiContainer scale={{ x: facing, y: 1 }}>
-        {isTyping && seatedTexture ? (
+        {seated && !isMoving && seatedTexture ? (
           <pixiSprite
             texture={seatedTexture}
             anchor={{ x: 0.5, y: 1 }}
