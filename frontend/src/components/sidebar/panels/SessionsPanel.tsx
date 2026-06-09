@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderInput,
+  Ghost,
   LayoutGrid,
   Monitor,
   Pin,
@@ -18,7 +19,6 @@ import {
   Radio,
   RefreshCw,
   Trash2,
-  Users,
 } from "lucide-react";
 
 import { agentMachineService } from "@/machines/agentMachineService";
@@ -285,27 +285,32 @@ export function SessionsPanel(): React.ReactNode {
     }
   }, [isRefreshing]);
 
-  // Hard resync — limpa todos os agentes de sessão do painel e refaz
-  // fetchSessions. Útil quando você fechou um terminal Claude mas o cobre
-  // ficou "fantasma" porque o backend não recebeu session_end.
-  const [isResyncing, setIsResyncing] = useState(false);
-  const handleResyncAgents = useCallback(async () => {
-    if (isResyncing) return;
-    setIsResyncing(true);
+  // Limpa sessões fantasma — marca como "completed" no backend toda sessão
+  // active com >5min de inatividade. Diferente do resync abaixo, que só limpa
+  // a tela: aqui o estado é persistido, então o cobre não respawna no próximo
+  // poll. Pedro 2026-06-08.
+  const [isClearingGhosts, setIsClearingGhosts] = useState(false);
+  const handleClearGhosts = useCallback(async () => {
+    if (isClearingGhosts) return;
+    setIsClearingGhosts(true);
     try {
-      // 1) Despawn de todos os agents "agent_session_*" — o useSyncSessionAgents
-      //    vai respawnar só os que o backend confirmar como ativos.
+      await fetch("http://localhost:8000/api/v1/sessions/clear-ghosts", {
+        method: "POST",
+      });
+      // Despawn local imediato — o useSyncSessionAgents também vai limpar no
+      // próximo poll, mas o feedback visual fica instantâneo.
       for (const agentId of agentMachineService.getActiveAgentIds()) {
         if (agentId.startsWith("agent_session_")) {
           agentMachineService.triggerDeparture(agentId);
         }
       }
-      // 2) Força refetch — useSessions ouve esse evento e roda fetchSessions.
       window.dispatchEvent(new CustomEvent("sessions-refresh"));
+    } catch {
+      // Silent — 5s poll eventualmente reflete o estado.
     } finally {
-      setIsResyncing(false);
+      setIsClearingGhosts(false);
     }
-  }, [isResyncing]);
+  }, [isClearingGhosts]);
 
   const handleResume = useCallback(
     async (id: string) => {
@@ -452,15 +457,15 @@ export function SessionsPanel(): React.ReactNode {
           </button>
           <button
             type="button"
-            onClick={handleResyncAgents}
-            disabled={isResyncing}
+            onClick={handleClearGhosts}
+            disabled={isClearingGhosts}
             className="p-1 text-jp-fg-dim hover:text-jp-gold hover:bg-jp-surface-2 rounded transition-colors disabled:opacity-50 disabled:cursor-wait"
-            title="Ressincronizar agentes do painel (limpa fantasmas de terminais fechados)"
-            aria-label="Ressincronizar agentes do painel"
+            title="Limpar sessões fantasma (marca como completed no DB toda sessão active com >5min de inatividade)"
+            aria-label="Limpar sessões fantasma"
           >
-            <Users
+            <Ghost
               size={11}
-              className={isResyncing ? "animate-pulse text-jp-gold" : ""}
+              className={isClearingGhosts ? "animate-pulse text-jp-gold" : ""}
             />
           </button>
         </div>

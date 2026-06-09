@@ -26,6 +26,35 @@ import {
 import { buildFolderTree, type FolderTreeNode } from "@/utils/folderTree";
 import { useSessionsPanelContext } from "./SessionsPanelContext";
 
+// Junta direct + descendentes (recursivo) já ordenados por recência.
+function collectAllSessions(node: FolderTreeNode): Session[] {
+  const all = [
+    ...node.directSessions,
+    ...node.children.flatMap(collectAllSessions),
+  ];
+  return all.sort((a, b) => {
+    const at = new Date(a.updatedAt).getTime();
+    const bt = new Date(b.updatedAt).getTime();
+    return bt - at;
+  });
+}
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diffSec = Math.max(0, Math.round((now - then) / 1000));
+  if (diffSec < 60) return "agora";
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}min`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `${diffH}h`;
+  const diffD = Math.round(diffH / 24);
+  if (diffD < 30) return `${diffD}d`;
+  const diffMo = Math.round(diffD / 30);
+  if (diffMo < 12) return `${diffMo}mês`;
+  return `${Math.round(diffMo / 12)}a`;
+}
+
 // Stable reference for the empty-floors fallback. If we inlined `?? []` in
 // the Zustand selector, each call would create a new array, breaking the
 // snapshot equality check and causing an infinite re-render loop.
@@ -300,6 +329,7 @@ function TreeNodeView({
   activeSessionId,
   onSelectSession,
   onEdit,
+  onLaunchRequest,
 }: {
   node: FolderTreeNode;
   expandedSet: Set<string>;
@@ -307,25 +337,18 @@ function TreeNodeView({
   activeSessionId: string;
   onSelectSession: (id: string) => void;
   onEdit: (id: string) => void;
+  onLaunchRequest: (node: FolderTreeNode) => void;
 }): React.ReactNode {
   const isExpanded = expandedSet.has(node.id);
-  const launch = usePinnedFoldersStore((s) => s.launch);
   const remove = usePinnedFoldersStore((s) => s.remove);
-  const [launching, setLaunching] = useState(false);
 
   const accent =
     node.kind === "pinned" ? (node.accent ?? "#5a5a5a") : undefined;
   const hasContent = node.directSessions.length > 0 || node.children.length > 0;
 
-  const handleLaunch = async (e: React.MouseEvent) => {
+  const handleLaunch = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (launching) return;
-    setLaunching(true);
-    const result = await launch(node.rawPath);
-    setLaunching(false);
-    if (!result.ok) {
-      window.alert(`Falha ao abrir Claude: ${result.error}`);
-    }
+    onLaunchRequest(node);
   };
 
   const handleRemove = (e: React.MouseEvent) => {
@@ -407,14 +430,13 @@ function TreeNodeView({
         <button
           type="button"
           onClick={handleLaunch}
-          disabled={launching}
-          className={
-            launching
-              ? "p-0.5 text-jp-gold animate-pulse"
-              : "p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+          className="p-0.5 text-jp-fg-dim hover:text-jp-gold rounded transition-colors opacity-0 group-hover:opacity-100"
+          aria-label={`Abrir sessão em ${node.label}`}
+          title={
+            node.totalSessions > 0
+              ? "Abrir sessão (nova ou retomar uma existente)"
+              : "Abrir nova sessão Claude aqui"
           }
-          aria-label={`Abrir nova sessão em ${node.label}`}
-          title="Abrir nova sessão Claude aqui"
         >
           <Play size={11} />
         </button>
@@ -463,10 +485,164 @@ function TreeNodeView({
               activeSessionId={activeSessionId}
               onSelectSession={onSelectSession}
               onEdit={onEdit}
+              onLaunchRequest={onLaunchRequest}
             />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// LAUNCH PICKER MODAL
+// ============================================================================
+
+function LaunchPickerModal({
+  node,
+  onClose,
+}: {
+  node: FolderTreeNode;
+  onClose: () => void;
+}): React.ReactNode {
+  const launch = usePinnedFoldersStore((s) => s.launch);
+  const [launchingNew, setLaunchingNew] = useState(false);
+  const [resumingId, setResumingId] = useState<string | null>(null);
+
+  const sessions = useMemo(() => collectAllSessions(node), [node]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handleNew = async () => {
+    if (launchingNew) return;
+    setLaunchingNew(true);
+    const result = await launch(node.rawPath);
+    setLaunchingNew(false);
+    if (!result.ok) {
+      window.alert(`Falha ao abrir Claude: ${result.error}`);
+      return;
+    }
+    onClose();
+  };
+
+  const handleResume = async (s: Session) => {
+    if (s.status === "active" || resumingId) return;
+    setResumingId(s.id);
+    await resumeSession(s.id);
+    setResumingId(null);
+    onClose();
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Abrir sessão em ${node.label}`}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md bg-jp-surface-1 border border-jp-divider-soft rounded-lg shadow-2xl flex flex-col max-h-[80vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-jp-divider-soft">
+          <div className="flex items-center gap-2 min-w-0">
+            {node.accent && (
+              <span
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: node.accent }}
+                aria-hidden
+              />
+            )}
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-bold text-jp-fg truncate">
+                {node.label}
+              </span>
+              <span className="text-[10px] text-jp-fg-dim font-mono truncate">
+                {node.rawPath}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-jp-fg-dim hover:text-jp-fg rounded flex-shrink-0"
+            aria-label="Fechar"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="p-3 border-b border-jp-divider-soft">
+          <button
+            type="button"
+            onClick={handleNew}
+            disabled={launchingNew}
+            className="w-full flex items-center justify-center gap-2 bg-jp-gold text-black font-bold text-xs px-3 py-2 rounded hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-wait"
+          >
+            <Plus size={13} />
+            {launchingNew ? "Abrindo..." : "Nova sessão"}
+          </button>
+        </div>
+
+        {sessions.length > 0 && (
+          <>
+            <div className="px-4 pt-3 pb-1 text-[10px] font-mono text-jp-fg-dim uppercase tracking-wider">
+              Retomar sessão · {sessions.length}
+            </div>
+            <div className="overflow-y-auto flex-grow px-2 pb-2">
+              {sessions.map((s) => {
+                const isLive = s.status === "active";
+                const label =
+                  s.displayName ?? s.label ?? s.id.slice(0, 8);
+                const isResuming = resumingId === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => void handleResume(s)}
+                    disabled={isLive || isResuming}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${
+                      isLive
+                        ? "opacity-50 cursor-not-allowed"
+                        : "hover:bg-jp-surface-2/60 cursor-pointer"
+                    }`}
+                    title={
+                      isLive
+                        ? "Sessão ativa em outro terminal"
+                        : `Retomar ${label}`
+                    }
+                  >
+                    {isLive ? (
+                      <Radio
+                        size={9}
+                        className="text-emerald-400 animate-pulse flex-shrink-0"
+                      />
+                    ) : (
+                      <PlayCircle
+                        size={9}
+                        className="text-jp-fg-dim flex-shrink-0"
+                      />
+                    )}
+                    <span className="text-[11px] text-jp-fg truncate flex-1">
+                      {label}
+                    </span>
+                    <span className="text-[9px] text-jp-fg-dim/70 font-mono flex-shrink-0">
+                      {isResuming ? "..." : formatRelativeTime(s.updatedAt)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -537,9 +713,26 @@ export function PinnedFoldersPanel(): React.ReactNode {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [launchPickerNode, setLaunchPickerNode] =
+    useState<FolderTreeNode | null>(null);
+
+  const launch = usePinnedFoldersStore((s) => s.launch);
 
   const editingFolder =
     editingId !== null ? folders.find((f) => f.id === editingId) : undefined;
+
+  const handleLaunchRequest = async (node: FolderTreeNode) => {
+    // Sem sessões prévias na pasta: abre nova direto sem fricção.
+    // Com sessões: abre o picker pra Pedro escolher nova ou retomar.
+    if (node.totalSessions === 0) {
+      const result = await launch(node.rawPath);
+      if (!result.ok) {
+        window.alert(`Falha ao abrir Claude: ${result.error}`);
+      }
+      return;
+    }
+    setLaunchPickerNode(node);
+  };
 
   const handleEdit = (id: string) => {
     setAdding(false);
@@ -641,11 +834,18 @@ export function PinnedFoldersPanel(): React.ReactNode {
                 activeSessionId={sessionId}
                 onSelectSession={(id) => void onSessionSelect(id)}
                 onEdit={handleEdit}
+                onLaunchRequest={(n) => void handleLaunchRequest(n)}
               />
             ))}
           </div>
         )}
       </div>
+      {launchPickerNode && (
+        <LaunchPickerModal
+          node={launchPickerNode}
+          onClose={() => setLaunchPickerNode(null)}
+        />
+      )}
     </div>
   );
 }
