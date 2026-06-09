@@ -323,6 +323,12 @@ def _handle_subagent_start(sm: "StateMachine", event: Event) -> None:
         )
         return
     agent = sm.create_agent(event.data)
+    # Marca como subagente só aqui (no SUBAGENT_START de verdade) — ghosts
+    # criados via PRE/POST_TOOL_USE em create_agent não passam por este path
+    # e ficam sem character_type. Frontend renderiza subagent → AI_SILVER e
+    # demais cobres → AI_COPPER (OfficeGame.tsx:2198).
+    agent.character_type = "subagent"
+    agent.parent_session_id = event.session_id
     sm.boss_state = BossState.DELEGATING
     sm.elevator_state = ElevatorState.OPEN
 

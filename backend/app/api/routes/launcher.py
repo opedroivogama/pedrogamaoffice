@@ -30,44 +30,15 @@ class LaunchRequest(BaseModel):
     path: str = Field(..., min_length=1, max_length=4096)
 
 
-def _encode_path_for_claude_projects(workdir: str) -> str:
-    """Codifica um path absoluto pro formato que Claude Code usa em
-    ``~/.claude/projects/``. Caracteres ``:``, ``\\``, ``/`` e espaço
-    viram ``-``. Exemplos:
-        ``C:\\Users\\Pedro\\Desktop`` → ``C--Users-Pedro-Desktop``
-        ``C:\\Users\\Pedro\\Desktop\\JURIDICO PRO - SECOND BRAIN``
-            → ``C--Users-Pedro-Desktop-JURIDICO-PRO---SECOND-BRAIN``
-    """
-    encoded = workdir
-    for ch in (":", "\\", "/", " "):
-        encoded = encoded.replace(ch, "-")
-    return encoded
-
-
-def _has_previous_session(workdir: str) -> bool:
-    """True se a pasta tem ao menos uma sessão Claude prévia (``*.jsonl``
-    em ``~/.claude/projects/<encoded>/``). Sem isso, ``claude -c`` aborta
-    com "No conversation found to continue" em vez de abrir nova.
-    """
-    encoded = _encode_path_for_claude_projects(workdir)
-    sessions_dir = Path.home() / ".claude" / "projects" / encoded
-    if not sessions_dir.is_dir():
-        return False
-    try:
-        return any(sessions_dir.glob("*.jsonl"))
-    except OSError:
-        return False
-
-
 def _build_launch_command(workdir: str) -> list[str] | None:
     """Monta o comando de abertura de terminal pra plataforma.
 
-    Escolhe entre ``claude -c`` (continue) e ``claude`` puro baseado na
-    existência de sessão anterior em ``~/.claude/projects/<encoded>/``.
-    Sem essa detecção, abrir Claude numa pasta nova falha com "No
-    conversation found to continue" (Pedro 2026-06-07).
+    Sempre abre uma sessão NOVA (``claude`` puro). O botão "Play" na sidebar
+    de Pastas fixadas promete "Abrir nova sessão Claude aqui" — pra retomar
+    a última sessão da pasta, o usuário usa o botão Play dentro de cada
+    sessão na árvore expandida.
     """
-    inner = "claude -c" if _has_previous_session(workdir) else "claude"
+    inner = "claude"
     if sys.platform == "win32":
         shell = "pwsh" if shutil.which("pwsh") else "powershell"
         return [

@@ -152,9 +152,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     await warm_pid_cache_from_db()
 
+    # Roda uma vez já no startup pra limpar fantasmas que ficaram do shutdown
+    # anterior (terminais fechados enquanto o backend estava off).
+    await _reap_dead_pid_sessions()
+
     git_service.start()
 
     refresh_names_task = asyncio.create_task(_refresh_display_names_loop())
+    pid_reaper_task = asyncio.create_task(_reap_dead_pid_loop())
 
     from app.services.supabase_sync import run_sync_loop as _supabase_sync_loop
 
@@ -163,9 +168,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     yield
 
     refresh_names_task.cancel()
+    pid_reaper_task.cancel()
     supabase_sync_task.cancel()
     with suppress(asyncio.CancelledError):
         await refresh_names_task
+    with suppress(asyncio.CancelledError):
+        await pid_reaper_task
     with suppress(asyncio.CancelledError):
         await supabase_sync_task
 
@@ -191,6 +199,84 @@ async def _reap_stale_sessions() -> None:
         count = int(str(getattr(result, "rowcount", 0)))
         if count > 0:
             reap_logger.info("Reaped %d stale sessions (inactive >48h)", count)
+
+
+_PID_REAP_INTERVAL_SECONDS = 30
+
+
+async def _reap_dead_pid_sessions() -> None:
+    """Mark active sessions whose Claude Code PID is dead as completed.
+
+    O hook ``session_end`` só dispara em saída limpa do Claude Code. Janela
+    fechada no X, Ctrl+C bruto e crashes deixam a sessão como ``active`` no DB
+    por até 48h (cf. ``_reap_stale_sessions``). Este reaper fecha o gap
+    consultando o SO: se o PID registrado em ``session_start`` não existe
+    mais, o terminal está fechado e a sessão vira ``completed`` na hora.
+
+    Sessões sem ``terminal_pid`` (bridges externos, registros legados pré-PID)
+    são ignoradas — continuam dependendo do reaper de 48h ou do botão fantasma.
+    """
+    import psutil
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    reap_logger = logging.getLogger("claude-office.pid-reaper")
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+
+    async with session_factory() as db:
+        result = await db.execute(
+            select(SessionRecord.id, SessionRecord.terminal_pid).where(
+                SessionRecord.status == "active",
+                SessionRecord.terminal_pid.is_not(None),
+            )
+        )
+        dead_ids: list[str] = []
+        for sid, pid in result.all():
+            if not sid or not pid:
+                continue
+            try:
+                if not psutil.pid_exists(int(pid)):
+                    dead_ids.append(sid)
+            except (ValueError, OSError):
+                # PID malformado ou erro do SO — não marca como morto pra ser
+                # conservador. Sessão segue active até o reaper de 48h.
+                continue
+
+        if not dead_ids:
+            return
+
+        await db.execute(
+            update(SessionRecord)
+            .where(SessionRecord.id.in_(dead_ids))
+            .values(status="completed")
+            .execution_options(synchronize_session="fetch")
+        )
+        await db.commit()
+        reap_logger.info(
+            "PID reaper: marked %d session(s) completed (terminal closed)",
+            len(dead_ids),
+        )
+        # Avisa o frontend pra refazer fetch — cobre some sem esperar o poll.
+        await manager.broadcast_all(
+            {
+                "type": "sessions_ghosts_cleared",
+                "cleared": len(dead_ids),
+                "timestamp": "",
+            }
+        )
+
+
+async def _reap_dead_pid_loop() -> None:
+    """Background loop: roda ``_reap_dead_pid_sessions`` a cada 30s."""
+    reap_logger = logging.getLogger("claude-office.pid-reaper")
+    while True:
+        try:
+            await asyncio.sleep(_PID_REAP_INTERVAL_SECONDS)
+            await _reap_dead_pid_sessions()
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:  # noqa: BLE001 — keep the loop alive
+            reap_logger.warning("PID reaper tick failed: %s", exc)
 
 
 async def _seed_building_config_from_toml_if_empty() -> None:
