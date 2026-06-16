@@ -137,3 +137,13 @@ scripts/_video_frames/
 # --- Bridge runtime state (muda toda hora, contém dados de leads) ---
 scripts/bridges/*state*.json
 scripts/bridges/.*state*.json
+
+# --- One-off / scratch que não pertence ao repo ---
+# Patches one-off do fluxo_state (Supabase JP, contém keys)
+_fluxo_*
+# Screenshots de teste/debug e dir de reparos manuais
+casa-de-maquinas/
+# Scripts do JurisChat (projeto JP, deveriam viver em JURIDICO PRO - SECOND BRAIN)
+scripts/jurischat_slots/
+# Artifacts de scripts de teste no backend (prefixo _)
+backend/scripts/_*
