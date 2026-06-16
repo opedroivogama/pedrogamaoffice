@@ -197,6 +197,7 @@ const es: Record<TranslationKey, string> = {
   "zoom.in": "Acercar",
   "zoom.out": "Alejar",
   "zoom.reset": "Restablecer zoom",
+  "zoom.fit": "Ajustar a la pantalla",
 
   // Mobile
   "mobile.menu": "Menú",

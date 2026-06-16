@@ -130,20 +130,29 @@ export function HeaderControls({
     const header = el?.parentElement;
     if (!el || !header) return;
 
+    let rafId: number | null = null;
     const measure = () => {
-      const left = header.firstElementChild as HTMLElement | null;
-      if (!left) return;
-      // gap-4 do header = 16px entre LEFT e RIGHT (StatusToast é fixed,
-      // não participa do fluxo). Largura máxima que a coluna esquerda
-      // pode ocupar = headerWidth - gap - larguraNaturalDaDireita.
-      const HEADER_GAP = 16;
-      const maxLeftWidth = header.clientWidth - HEADER_GAP - el.scrollWidth;
-      const slack = maxLeftWidth - left.scrollWidth;
-      if (slack < SAFETY_MARGIN) {
-        setCollapseLevel((l) => Math.min(l + 1, MAX_COLLAPSE));
-      } else if (slack > EXPAND_MARGIN) {
-        setCollapseLevel((l) => Math.max(l - 1, 0));
-      }
+      // Debounce via rAF: ResizeObserver pode disparar várias vezes
+      // por frame quando muitos elementos mudam ao mesmo tempo (ex:
+      // sidebar abrindo). Pedro 2026-06-09: sem isso, o setCollapseLevel
+      // disparava em cadeia e batia no MAX update depth do React.
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const left = header.firstElementChild as HTMLElement | null;
+        if (!left) return;
+        // gap-4 do header = 16px entre LEFT e RIGHT (StatusToast é fixed,
+        // não participa do fluxo). Largura máxima que a coluna esquerda
+        // pode ocupar = headerWidth - gap - larguraNaturalDaDireita.
+        const HEADER_GAP = 16;
+        const maxLeftWidth = header.clientWidth - HEADER_GAP - el.scrollWidth;
+        const slack = maxLeftWidth - left.scrollWidth;
+        if (slack < SAFETY_MARGIN) {
+          setCollapseLevel((l) => Math.min(l + 1, MAX_COLLAPSE));
+        } else if (slack > EXPAND_MARGIN) {
+          setCollapseLevel((l) => Math.max(l - 1, 0));
+        }
+      });
     };
 
     measure();
@@ -152,10 +161,15 @@ export function HeaderControls({
     ro.observe(el);
     const left = header.firstElementChild;
     if (left instanceof Element) ro.observe(left);
-    return () => ro.disconnect();
-    // rightColumnWidth na dep list: quando a sidebar é redimensionada,
-    // o STATUS muda de largura → re-mede e re-colapsa se necessário.
-  }, [collapseLevel, rightColumnWidth]);
+    return () => {
+      ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+    // collapseLevel REMOVIDO do dep list (Pedro 2026-06-09): re-rodar o
+    // effect a cada set causava ciclo infinito com o ResizeObserver. O
+    // setter funcional já lê o valor atual, não precisa de re-mount.
+    // rightColumnWidth: mantém — quando a sidebar resize, re-mede.
+  }, [rightColumnWidth]);
 
   const hideNotes = collapseLevel >= 1;
   const hideReset = collapseLevel >= 2;

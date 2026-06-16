@@ -194,6 +194,7 @@ const en = {
   "zoom.in": "Zoom in",
   "zoom.out": "Zoom out",
   "zoom.reset": "Reset zoom",
+  "zoom.fit": "Fit to screen",
 
   // Mobile
   "mobile.menu": "Menu",

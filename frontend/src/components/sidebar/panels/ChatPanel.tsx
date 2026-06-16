@@ -475,6 +475,32 @@ export function ChatPanel(): React.ReactNode {
     const raw = input.trim();
     if (!raw) return;
 
+    // Comandos /silent locais — interceptados antes de qualquer envio ao
+    // Claude. Pedro 2026-06-09:
+    //   /silent     → snapshot clean: limpa tudo da tela AGORA. Bubbles
+    //                 futuros continuam aparecendo normal.
+    //   /silenton   → liga modo silent: bubbles param de aparecer.
+    //   /silentoff  → desliga modo silent.
+    // Match case-insensitive, sem args.
+    const silentCmd = raw.toLowerCase();
+    if (silentCmd === "/silent") {
+      useGameStore.getState().clearAllBubblesNow();
+      setInput("");
+      return;
+    }
+    if (silentCmd === "/silenton") {
+      const s = useGameStore.getState();
+      s.clearAllBubblesNow();
+      s.setBubblesSilenced(true);
+      setInput("");
+      return;
+    }
+    if (silentCmd === "/silentoff") {
+      useGameStore.getState().setBubblesSilenced(false);
+      setInput("");
+      return;
+    }
+
     // Resolve kind: modo btw ativo OU prefixo /btw literal → sidequest;
     // caso contrário, turno main normal. O prefixo é stripado quando casa.
     const btwPrefixMatch = raw.match(/^\/btw[\s:]+([\s\S]+)$/i);

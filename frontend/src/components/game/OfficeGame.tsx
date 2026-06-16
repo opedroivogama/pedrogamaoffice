@@ -724,6 +724,10 @@ function UserAvatar({
   const bubbleText = useGameStore((s) => s.userAvatarBubbles.get(id));
   const setUserAvatarBubble = useGameStore((s) => s.setUserAvatarBubble);
   const facingOverride = useGameStore((s) => s.userAvatarFacings.get(id));
+  // Sentado só via click explícito (Pedro 2026-06-06): leia entitySeats.
+  // Movido pra cima dos early returns (era na linha 819) — Rules of Hooks:
+  // hook não pode aparecer depois de `return null`. Pedro 2026-06-09.
+  const chair = useGameStore((s) => s.entitySeats.get(id) ?? null);
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
 
@@ -814,11 +818,6 @@ function UserAvatar({
   // Hold off until loadUserAvatarPositions() resolved — avoids spawn at
   // default coords + visible teleport when the fetch arrives ~200ms later.
   if (!positionsHydrated) return null;
-
-  // Sentado só via click explícito (Pedro 2026-06-06): leia entitySeats.
-  const chair = useGameStore(
-    (s) => s.entitySeats.get(id) ?? null,
-  );
 
   // Quando sentado, força facing=south (de frente pra câmera).
   // Pedido do Pedro em 2026-06-06.
@@ -1064,7 +1063,8 @@ function PedroBubbleLayer(): ReactNode {
     (s) =>
       s.entitySeats.get("pedro-samurai") ?? s.entitySeats.get("pedro") ?? null,
   );
-  if (!position || !bubbleText) return null;
+  const silenced = useGameStore((s) => s.bubblesSilenced);
+  if (!position || !bubbleText || silenced) return null;
   // Pedro Samurai atual: size=282, topPaddingRatio=63/248. Pedro 2026-06-07:
   // fórmula corrigida — antes usava size=256, topPad=58/228 e fórmula errada
   // de crânio sentado (size*SEATED_CROP_RATIO*(1-topPad)), que jogava a
@@ -1514,6 +1514,7 @@ export function OfficeGame(): ReactNode {
   const contextUtilization = useGameStore(selectContextUtilization);
   const isCompacting = useGameStore(selectIsCompacting);
   const printReport = useGameStore(selectPrintReport);
+  const bubblesSilenced = useGameStore((s) => s.bubblesSilenced);
 
   // Floor info for elevator label
   const floorId = useNavigationStore((s) => s.floorId);
@@ -1806,24 +1807,69 @@ export function OfficeGame(): ReactNode {
   // Pedro 2026-06-08: substitui o resetTransform anterior pra que ao
   // maximizar a janela o canvas cresça junto, ao invés de ficar 1280×1024
   // fixo num panel maior, deixando espaço vazio à direita.
-  useEffect(() => {
-    const fitView = () => {
-      const panel = containerRef.current;
-      const tr = transformRef.current;
-      if (!panel || !tr) return;
-      const panelW = panel.clientWidth;
-      const panelH = panel.clientHeight;
-      if (panelW <= 0 || panelH <= 0) return;
-      const fitScale = Math.min(panelW / CANVAS_WIDTH, panelH / CANVAS_HEIGHT);
-      const offsetX = (panelW - CANVAS_WIDTH * fitScale) / 2;
-      const offsetY = (panelH - CANVAS_HEIGHT * fitScale) / 2;
-      tr.setTransform(offsetX, offsetY, fitScale, 0);
-    };
-    // Espera o TransformWrapper montar.
-    requestAnimationFrame(fitView);
-    window.addEventListener("resize", fitView);
-    return () => window.removeEventListener("resize", fitView);
+  // Também exposto como callback pro botão "1:1" no ZoomControls.
+  const fitView = useCallback(() => {
+    const panel = containerRef.current;
+    const tr = transformRef.current;
+    if (!panel || !tr) return;
+    const panelW = panel.clientWidth;
+    const panelH = panel.clientHeight;
+    if (panelW <= 0 || panelH <= 0) return;
+    const fitScale = Math.min(panelW / CANVAS_WIDTH, panelH / CANVAS_HEIGHT);
+    const offsetX = (panelW - CANVAS_WIDTH * fitScale) / 2;
+    const offsetY = (panelH - CANVAS_HEIGHT * fitScale) / 2;
+    tr.setTransform(offsetX, offsetY, fitScale, 0);
   }, []);
+
+  // Zoom centralizado pros botões +/−. O `zoomIn`/`zoomOut` nativo da lib
+  // escala em torno do focal point atual e não re-centraliza quando o canvas
+  // fica menor que o painel — resultado: canvas grudado na esquerda com
+  // espaço vazio à direita. Aqui recalculamos o offset centrado pra cada
+  // nova escala. Wheel/pinch continuam com o foco no cursor (intencional).
+  const zoomByCentered = useCallback((factor: number) => {
+    const panel = containerRef.current;
+    const tr = transformRef.current;
+    if (!panel || !tr) return;
+    const panelW = panel.clientWidth;
+    const panelH = panel.clientHeight;
+    if (panelW <= 0 || panelH <= 0) return;
+    const currentScale = tr.state.scale;
+    const newScale = Math.max(0.1, Math.min(3, currentScale * factor));
+    const offsetX = (panelW - CANVAS_WIDTH * newScale) / 2;
+    const offsetY = (panelH - CANVAS_HEIGHT * newScale) / 2;
+    tr.setTransform(offsetX, offsetY, newScale, 200);
+  }, []);
+
+  useEffect(() => {
+    // ResizeObserver no container pega TODA mudança de tamanho — load
+    // inicial enquanto sidebars/accordions vão acomodando, drag de divisor
+    // de painel, resize de janela, etc. Pedro 2026-06-09: antes era só
+    // requestAnimationFrame(fitView) no mount, e se o layout não tava
+    // estável naquele 1 frame, o canvas ficava grudado no topo-esquerda
+    // e nunca recentrava (só com clique manual no botão 1:1).
+    const panel = containerRef.current;
+    if (!panel) return;
+    const ro = new ResizeObserver(() => fitView());
+    ro.observe(panel);
+    // Disparos extras pra cobrir o caso de o ResizeObserver não ver o
+    // primeiro layout shift (alguns browsers atrasam o callback inicial).
+    // Pedro 2026-06-09: sidebars/accordions terminam de acomodar entre
+    // 250ms e ~1.2s dependendo da máquina — sem o segundo timeout, em
+    // telas pequenas o canvas ficava grudado à esquerda até o usuário
+    // clicar 1:1 manualmente.
+    requestAnimationFrame(fitView);
+    const t1 = setTimeout(fitView, 250);
+    const t2 = setTimeout(fitView, 800);
+    const t3 = setTimeout(fitView, 1500);
+    window.addEventListener("resize", fitView);
+    return () => {
+      ro.disconnect();
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      window.removeEventListener("resize", fitView);
+    };
+  }, [fitView]);
 
   return (
     <div ref={containerRef} className="w-full h-full overflow-hidden relative">
@@ -1844,11 +1890,12 @@ export function OfficeGame(): ReactNode {
         pinch={{ step: 5 }}
         doubleClick={{ disabled: true }}
       >
-        <ZoomControls />
-        <TransformComponent
-          wrapperClass="w-full h-full"
-          contentClass="w-full h-full"
-        >
+        <ZoomControls
+          onZoomIn={() => zoomByCentered(1.2)}
+          onZoomOut={() => zoomByCentered(1 / 1.2)}
+          onFit={fitView}
+        />
+        <TransformComponent wrapperClass="w-full h-full">
           <div
             className="pixi-canvas-container relative"
             style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
@@ -2075,6 +2122,8 @@ export function OfficeGame(): ReactNode {
                     doorTexture={textures.elevatorDoor}
                     headsetTexture={null}
                     sunglassesTexture={null}
+                    cobreIdleTexture={aiCopperIdleTexture}
+                    prataIdleTexture={aiSilverIdleTexture}
                     onTap={useElevatorModalStore.getState().open}
                   />
 
@@ -2695,25 +2744,75 @@ export function OfficeGame(): ReactNode {
                       </pixiContainer>
                     ))}
 
-                  {/* Bubbles Layer - rendered on top of everything */}
-                  {Array.from(agents.values())
+                  {/* Bubbles Layer - rendered on top of everything.
+                      Cobres (agent_session_*) ganham `headerName` com o nome
+                      da sessão como header dentro do balão — vira "etiqueta
+                      de placa de mesa" e dispensa o conflito com o label
+                      flutuante acima da cabeça (Pedro 2026-06-09).
+                      Silenciada inteira por /silenton (Pedro 2026-06-09). */}
+                  {!bubblesSilenced && Array.from(agents.values())
                     .filter(
                       (agent) =>
                         agent.bubble.content &&
                         !isInElevatorZone(agent.currentPosition),
                     )
-                    .map((agent) => (
-                      <pixiContainer
-                        key={`bubble-${agent.id}`}
-                        x={agent.currentPosition.x}
-                        y={agent.currentPosition.y}
-                      >
-                        <AgentBubble
-                          content={agent.bubble.content!}
-                          yOffset={-80}
-                        />
-                      </pixiContainer>
-                    ))}
+                    .map((agent) => {
+                      const isCobre = agent.id.startsWith("agent_session_");
+                      return (
+                        <pixiContainer
+                          key={`bubble-${agent.id}`}
+                          x={agent.currentPosition.x}
+                          y={agent.currentPosition.y}
+                        >
+                          <AgentBubble
+                            content={agent.bubble.content!}
+                            yOffset={-80}
+                            headerName={isCobre && agent.name ? agent.name : undefined}
+                          />
+                        </pixiContainer>
+                      );
+                    })}
+
+                  {/* Status Badge Layer — ícone persistente ACIMA do nome
+                      do cobre. Renderiza DEPOIS dos bubbles pra ficar
+                      SEMPRE visível (z-order).
+                      Posição fixa em y=-160 (acima do label do nome em
+                      y=-130). 🔔 fica maior (40px) pra dar peso visual.
+                      Pedro 2026-06-09: tentei posicionar 🔔 sobre a bubble
+                      pra "cobrir se vazar", mas sem bubble ele ficava
+                      abaixo do nome — feio. Defesa principal contra vazo
+                      é o clearBubbles do hook. */}
+                  {Array.from(agents.values())
+                    .filter(
+                      (agent) =>
+                        agent.statusIcon &&
+                        !isInElevatorZone(agent.currentPosition),
+                    )
+                    .map((agent) => {
+                      const isAwaiting = agent.statusIcon === "🔔";
+                      const badgeSize = isAwaiting ? 40 : 28;
+                      return (
+                        <pixiContainer
+                          key={`status-${agent.id}`}
+                          x={agent.currentPosition.x}
+                          y={agent.currentPosition.y}
+                          zIndex={9_999_999}
+                        >
+                          <pixiText
+                            text={agent.statusIcon!}
+                            anchor={0.5}
+                            x={0}
+                            y={-160}
+                            style={{
+                              fontSize: badgeSize,
+                              fontFamily: "monospace",
+                            }}
+                            resolution={2}
+                          />
+                        </pixiContainer>
+                      );
+                    })}
+
                   {/* Balão do Claudius — renderiza chunks ciclados de
                       `cycledBossBubble` (resposta crua dividida em
                       sentenças, ~1.8s cada, congela na última).
@@ -2723,7 +2822,7 @@ export function OfficeGame(): ReactNode {
                       WanderingBoss usa pra trocar pro sprite sentado.
                       Clicar dispensa o balão e força backendState=idle
                       pra cortar também a ligação/recebimento em curso. */}
-                  {cycledBossBubble && findNearestChair(boss.position, 30) && (
+                  {!bubblesSilenced && cycledBossBubble && findNearestChair(boss.position, 30) && (
                     <pixiContainer
                       x={boss.position.x}
                       y={boss.position.y}

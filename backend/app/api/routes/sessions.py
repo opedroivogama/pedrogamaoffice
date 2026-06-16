@@ -76,10 +76,18 @@ class SessionSummary(TypedDict):
 
 
 # Event types that mean Claude Code is waiting for the user to respond.
-# "notification" = Claude needs input (e.g. permission request, ai-driven
-# clarification). "waiting" = generic waiting state. Once any other event
-# follows, the session is no longer awaiting input.
-_AWAITING_EVENT_TYPES: frozenset[str] = frozenset({"notification", "waiting"})
+# - "notification" = Claude needs input (e.g. permission request, ai-driven
+#   clarification).
+# - "waiting" = generic waiting state.
+# - "stop" = Claude terminou o turno (resposta completa). Próxima ação é
+#   sempre do Pedro. Pedro 2026-06-09: ANTES o 🔔 só aparecia em casos
+#   raros (notification/waiting) e a maioria das sessões "terminei,
+#   esperando você" ficava sem sinal — o painel não cumpria sua função
+#   principal de avisar quando precisa de atenção.
+# Once any other event follows, the session is no longer awaiting input.
+_AWAITING_EVENT_TYPES: frozenset[str] = frozenset(
+    {"notification", "waiting", "stop"}
+)
 
 
 class ReplayEvent(TypedDict):

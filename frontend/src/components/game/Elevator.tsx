@@ -27,6 +27,13 @@ interface ElevatorProps {
   headsetTexture: Texture | null;
   /** Sunglasses texture for agents */
   sunglassesTexture: Texture | null;
+  /** Idle textura do cobre (sessão Claude). Usada pra agentes no elevador
+   *  que NÃO são subagentes. Pedro 2026-06-09: sem isso o AgentSprite
+   *  caía no fallback drawChibi e gerava sprite estilo Super Mario. */
+  cobreIdleTexture: Texture | null;
+  /** Idle textura do prata (subagente). Usada pra agentes no elevador
+   *  com `characterType === "subagent"`. */
+  prataIdleTexture: Texture | null;
   /** Quando definido, clicar no elevador (frame ou portas) dispara este
    *  callback. Usado pra abrir o ElevatorModal com a lista de andares. */
   onTap?: () => void;
@@ -87,11 +94,15 @@ export function Elevator({
   doorTexture,
   headsetTexture,
   sunglassesTexture,
+  cobreIdleTexture,
+  prataIdleTexture,
   onTap,
 }: ElevatorProps): ReactNode {
   const doorScale = useDoorAnimation(isOpen);
 
-  // Filter agents that are inside the elevator
+  // Agentes dentro da zona do elevador. Renderizados em IDLE com a textura
+  // correta (cobre/prata) — Pedro 2026-06-09: antes ficavam sem textura
+  // e caíam no fallback drawChibi (sprite "Super Mario").
   const agentsInside = Array.from(agents.values()).filter((agent) =>
     isInsideElevator(
       agent.currentPosition.x,
@@ -117,23 +128,43 @@ export function Elevator({
         </pixiContainer>
       )}
 
-      {/* Agents inside elevator (behind doors) */}
-      {agentsInside.map((agent) => (
-        <AgentSprite
-          key={agent.id}
-          id={agent.id}
-          name={agent.name}
-          color={agent.color}
-          number={agent.number}
-          position={agent.currentPosition}
-          phase={agent.phase}
-          bubble={agent.bubble.content}
-          headsetTexture={headsetTexture}
-          sunglassesTexture={sunglassesTexture}
-          renderBubble={false}
-          isTyping={agent.isTyping}
-        />
-      ))}
+      {/* Agentes dentro do elevador (atrás das portas).
+          Render só com idle — sem cycle de walking porque eles ficam
+          parados esperando. Cobre por padrão, prata se for subagente.
+          Mesmo size/foot offset que o loop principal de OfficeGame
+          (240/60) pra ficar consistente quando entra/sai. */}
+      {agentsInside.map((agent) => {
+        const isSubagent = agent.characterType === "subagent";
+        const idle = isSubagent ? prataIdleTexture : cobreIdleTexture;
+        return (
+          <AgentSprite
+            key={agent.id}
+            id={agent.id}
+            name={agent.name}
+            color={agent.color}
+            number={agent.number}
+            position={agent.currentPosition}
+            phase={agent.phase}
+            bubble={agent.bubble.content}
+            headsetTexture={headsetTexture}
+            sunglassesTexture={sunglassesTexture}
+            characterTexture={idle}
+            characterStepLeftTexture={idle}
+            characterStepRightTexture={idle}
+            characterSideIdleTexture={idle}
+            characterSideStep1Texture={idle}
+            characterSideStep2Texture={idle}
+            characterBackIdleTexture={idle}
+            characterBackStep1Texture={idle}
+            characterBackStep2Texture={idle}
+            characterRenderSize={idle ? 240 : 128}
+            characterFeetOffsetY={idle ? 60 : 0}
+            renderBubble={false}
+            renderLabel={false}
+            isTyping={false}
+          />
+        );
+      })}
 
       {/* Elevator doors and indicator (in front of agents inside) */}
       {doorTexture && (

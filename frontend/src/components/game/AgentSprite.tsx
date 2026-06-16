@@ -112,9 +112,19 @@ interface BubbleProps {
   /** Override the default 60-char truncation. Used by Pedro/user bubbles
    *  which can hold longer prompts than agent/boss chatter. */
   maxChars?: number;
+  /** Nome opcional renderizado como header pequeno no topo do balão.
+   *  Usado pelos cobres pra "etiqueta de placa de mesa" (Pedro 2026-06-09):
+   *  o nome da sessão sempre visível dentro do bubble, sem conflitar com
+   *  o label flutuante acima da cabeça. */
+  headerName?: string;
 }
 
-function Bubble({ content, yOffset, maxChars }: BubbleProps): ReactNode {
+function Bubble({
+  content,
+  yOffset,
+  maxChars,
+  headerName,
+}: BubbleProps): ReactNode {
   const { type = "thought", icon } = content;
   const text = truncateBubbleText(content.text, maxChars);
 
@@ -129,11 +139,22 @@ function Bubble({ content, yOffset, maxChars }: BubbleProps): ReactNode {
   const charWidth = 8;
   const paddingH = 32;
   const maxW = 368;
-  const rawWidth = text.length * charWidth + paddingH;
+  // Garante que o bubble seja largo o suficiente pra header (nome) quando
+  // o texto da operação é curto mas o nome é longo. Sem isso "Reparo -
+  // Pastas" overflowa em bubble de 88px (Pedro 2026-06-09).
+  const headerCharWidth = 6;
+  const headerRawWidth = headerName
+    ? headerName.length * headerCharWidth + paddingH
+    : 0;
+  const rawWidth = Math.max(text.length * charWidth + paddingH, headerRawWidth);
   const bWidth = Math.min(maxW, Math.max(88, rawWidth));
   const capacity = (bWidth - paddingH) / charWidth;
   const lines = Math.max(1, Math.ceil(text.length / capacity));
-  const bHeight = 35 + lines * 16;
+  // Header adiciona 18px no topo do bubble. drawBubble desenha pra cima do
+  // anchor (y=0), então cresce o bubble inteiro sem mexer no texto da
+  // operação — ele continua centralizado no MIDDLE do espaço ORIGINAL.
+  const headerExtra = headerName ? 18 : 0;
+  const bHeight = 35 + lines * 16 + headerExtra;
 
   // Montserrat 700 + letter-spacing pra legibilidade clara à distância.
   const textStyle = useMemo<Partial<TextStyle>>(
@@ -165,6 +186,21 @@ function Bubble({ content, yOffset, maxChars }: BubbleProps): ReactNode {
     [],
   );
 
+  // Header style — nome da sessão no topo do bubble do cobre. Menor que
+  // o texto da operação pra não competir visualmente; bronze JP pra dar
+  // identidade.
+  const headerStyle = useMemo<Partial<TextStyle>>(
+    () => ({
+      fontFamily:
+        '"Montserrat", "Segoe UI", system-ui, sans-serif',
+      fontSize: 22,
+      fill: "#B8972A",
+      fontWeight: "700",
+      letterSpacing: 0.3,
+    }),
+    [],
+  );
+
   return (
     <pixiContainer y={yOffset} x={45}>
       <pixiGraphics draw={(g) => drawBubble(g, bWidth, bHeight, type)} />
@@ -182,8 +218,26 @@ function Bubble({ content, yOffset, maxChars }: BubbleProps): ReactNode {
           </pixiContainer>
         </pixiContainer>
       )}
-      {/* Text rendered at 2x and scaled down for sharpness */}
-      <pixiContainer x={-bWidth / 2 + 15} y={-bHeight / 2} scale={0.5}>
+      {/* Header opcional (cobres): nome da sessão no topo, em bronze JP.
+          Renderizado a 2x e escalado pra ficar nítido. */}
+      {headerName && (
+        <pixiContainer x={0} y={-bHeight + 14} scale={0.5}>
+          <pixiText
+            text={headerName}
+            anchor={0.5}
+            style={headerStyle}
+            resolution={2}
+          />
+        </pixiContainer>
+      )}
+      {/* Text rendered at 2x and scaled down for sharpness. Quando tem
+          header, empurra pra BAIXO meio headerExtra pra texto continuar
+          centrado na "área de operação" abaixo do header. */}
+      <pixiContainer
+        x={-bWidth / 2 + 15}
+        y={-bHeight / 2 + headerExtra / 2}
+        scale={0.5}
+      >
         <pixiText
           text={text}
           anchor={{ x: 0, y: 0.5 }}
@@ -575,10 +629,10 @@ export interface AgentLabelProps {
 
 function AgentLabelComponent({ name, position }: AgentLabelProps): ReactNode {
   // Floating name only — no pill background (reserved for player avatars).
-  // Posição -92 (Pedro pediu mais alto, 2026-06-04) pra liberar espaço
-  // entre cabeça do sprite e o label.
+  // Posição -130 (Pedro 2026-06-09: subiu pra ficar ACIMA do bubble do
+  // cobre que mora em yOffset=-80 e cresce pra cima até ~-115).
   return (
-    <pixiContainer x={position.x} y={position.y - 99}>
+    <pixiContainer x={position.x} y={position.y - 130}>
       <pixiText
         text={name}
         anchor={0.5}

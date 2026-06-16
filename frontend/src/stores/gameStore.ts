@@ -93,6 +93,13 @@ export interface AgentAnimationState {
 
   // Animation state
   isTyping: boolean; // True when agent is actively using tools
+
+  // Status badge — ícone persistente acima da cabeça que NÃO some por causa
+  // de bubbles de fala. Usado pra sinalizar estados que o Pedro precisa ver
+  // de relance: "🔔" quando o terminal está aguardando input dele, etc.
+  // Diferente do bubble (que vem de Claude falando) — esse é puramente um
+  // indicador de estado controlado pelo painel.
+  statusIcon: string | null;
 }
 
 /**
@@ -162,6 +169,9 @@ export interface GameStore {
     queueIndex: number,
   ) => void;
   setAgentTyping: (agentId: string, typing: boolean) => void;
+  /** Seta o ícone de status persistente acima da cabeça do agente. Passe
+   *  `null` pra remover. Independente do sistema de bubble. */
+  setAgentStatusIcon: (agentId: string, icon: string | null) => void;
 
   // ========== Queue State ==========
   arrivalQueue: string[]; // Agent IDs in order
@@ -287,6 +297,17 @@ export interface GameStore {
   getCurrentBubble: (entityId: string) => BubbleContent | null;
   isBubbleQueueEmpty: (entityId: string) => boolean;
   hasBubbleText: (entityId: string, text: string) => boolean;
+
+  // Silent mode — quando true, todas as layers de balão (cobre/Claudius/
+  // Pedro/userAvatar) param de renderizar. NÃO afeta o status badge (🔔).
+  // Comandos: `/silenton`, `/silentoff` no ChatPanel (Pedro 2026-06-09).
+  bubblesSilenced: boolean;
+  setBubblesSilenced: (silenced: boolean) => void;
+  /** Limpa todos os bubbles existentes AGORA, mas não muda
+   *  `bubblesSilenced`. Usado pelo comando `/silent` (snapshot clean): a
+   *  tela fica limpa imediatamente e bubbles futuros continuam aparecendo
+   *  normalmente. */
+  clearAllBubblesNow: () => void;
 
   // ========== Office State ==========
   sessionId: string;
@@ -590,6 +611,7 @@ export const useGameStore = create<GameStore>()(
           queueType: null,
           queueIndex: -1,
           isTyping: false,
+          statusIcon: null,
         };
         newAgents.set(backendAgent.id, animState);
 
@@ -715,6 +737,17 @@ export const useGameStore = create<GameStore>()(
 
         const newAgents = new Map(state.agents);
         newAgents.set(agentId, { ...agent, isTyping });
+        return { agents: newAgents };
+      }),
+
+    setAgentStatusIcon: (agentId, icon) =>
+      set((state) => {
+        const agent = state.agents.get(agentId);
+        if (!agent) return state;
+        if (agent.statusIcon === icon) return state; // no-op, evita re-render
+
+        const newAgents = new Map(state.agents);
+        newAgents.set(agentId, { ...agent, statusIcon: icon });
         return { agents: newAgents };
       }),
 
@@ -1157,6 +1190,23 @@ export const useGameStore = create<GameStore>()(
         });
 
         return { agents: newAgents };
+      }),
+
+    bubblesSilenced: false,
+
+    setBubblesSilenced: (silenced) => set({ bubblesSilenced: silenced }),
+
+    clearAllBubblesNow: () =>
+      set((state) => {
+        const newAgents = new Map<string, AgentAnimationState>();
+        for (const [id, agent] of state.agents) {
+          newAgents.set(id, { ...agent, bubble: createEmptyBubbleState() });
+        }
+        return {
+          agents: newAgents,
+          boss: { ...state.boss, bubble: createEmptyBubbleState() },
+          userAvatarBubbles: new Map<string, string>(),
+        };
       }),
 
     getCurrentBubble: (entityId) => {

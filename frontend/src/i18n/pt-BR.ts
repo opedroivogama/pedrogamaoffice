@@ -197,6 +197,7 @@ const ptBR: Record<TranslationKey, string> = {
   "zoom.in": "Aumentar zoom",
   "zoom.out": "Diminuir zoom",
   "zoom.reset": "Resetar zoom",
+  "zoom.fit": "Ajustar à tela",
 
   // Mobile
   "mobile.menu": "Menu",
